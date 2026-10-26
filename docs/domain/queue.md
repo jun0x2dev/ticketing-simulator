@@ -19,7 +19,7 @@
 |---|---|---|---|
 | `entry.requested` | queue.producer (EntryRequestProducer) | queue.consumer (EntryRequestConsumer) | 입장 요청 적재. 현재 consumer는 로그만 남김 |
 | `entry.granted` | (미구현) | (미구현) | 입장 허용 알림 — 토픽만 선언됨 |
-| `seat.confirmed` | (미구현) | (미구현) | 결제 완료 좌석 — 토픽만 선언됨 |
-| `seat.released` | (미구현) | (미구현) | TTL 만료/결제 실패 좌석 — 토픽만 선언됨 |
+| `seat.confirmed` | payment.producer (SeatEventProducer) | (미구현) | 결제 완료 좌석 |
+| `seat.released` | payment.producer (SeatEventProducer) | (미구현) | 결제 실패 좌석. TTL 만료 해제 시 발행은 미구현 |
 
 토픽 정의는 `global.config.KafkaTopicConfig`에서 관리한다.
