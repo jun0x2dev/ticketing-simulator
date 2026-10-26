@@ -49,6 +49,22 @@ public class SeatServiceImpl implements SeatService {
     }
 
     @Override
+    public SeatResponse getSeat(Long seatId) {
+        return seatRepository.findById(seatId)
+                .map(SeatResponse::from)
+                .orElseThrow(() -> new CustomException(ErrorCode.SEAT_NOT_FOUND));
+    }
+
+    @Override
+    @Transactional
+    public void confirmSeat(Long seatId) {
+        Seat seat = seatRepository.findById(seatId)
+                .orElseThrow(() -> new CustomException(ErrorCode.SEAT_NOT_FOUND));
+        seat.confirm();
+        log.info("좌석 확정 완료 - seatId: {}", seatId);
+    }
+
+    @Override
     @Transactional
     public SeatResponse holdSeat(Long seatId) {
         // 1. Redis 락 선점 시도 — 동시에 여러 요청이 들어와도 SET NX 1회 명령으로 단 하나만 성공한다.
