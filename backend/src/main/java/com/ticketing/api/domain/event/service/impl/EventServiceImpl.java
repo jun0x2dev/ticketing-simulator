@@ -5,6 +5,7 @@ import com.ticketing.api.domain.event.dto.EventResponse;
 import com.ticketing.api.domain.event.entity.Event;
 import com.ticketing.api.domain.event.repository.EventRepository;
 import com.ticketing.api.domain.event.service.EventService;
+import com.ticketing.api.domain.seat.service.SeatService;
 import com.ticketing.api.global.exception.CustomException;
 import com.ticketing.api.global.exception.ErrorCode;
 import lombok.RequiredArgsConstructor;
@@ -25,12 +26,15 @@ public class EventServiceImpl implements EventService {
     private static final Logger log = LoggerFactory.getLogger(EventServiceImpl.class);
 
     private final EventRepository eventRepository;
+    private final SeatService seatService;
 
     @Override
     @Transactional
     public EventResponse createEvent(EventCreateRequest request) {
         Event event = Event.create(request.name(), request.seatCount(), request.openAt());
         Event saved = eventRepository.save(event);
+        // 이벤트 생성 시 좌석 수만큼 좌석을 함께 초기화한다 (1~seatCount번)
+        seatService.initializeSeats(saved, saved.getSeatCount());
         log.info("이벤트 생성 완료 - eventId: {}, name: {}", saved.getId(), saved.getName());
         return EventResponse.from(saved);
     }

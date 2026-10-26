@@ -9,6 +9,7 @@ import com.ticketing.api.domain.event.dto.EventCreateRequest;
 import com.ticketing.api.domain.event.dto.EventResponse;
 import com.ticketing.api.domain.event.entity.Event;
 import com.ticketing.api.domain.event.repository.EventRepository;
+import com.ticketing.api.domain.seat.service.SeatService;
 import com.ticketing.api.global.exception.CustomException;
 import com.ticketing.api.global.exception.ErrorCode;
 import java.time.LocalDateTime;
@@ -28,6 +29,9 @@ class EventServiceImplTest {
 
     @Mock
     private EventRepository eventRepository;
+
+    @Mock
+    private SeatService seatService;
 
     @InjectMocks
     private EventServiceImpl eventService;
