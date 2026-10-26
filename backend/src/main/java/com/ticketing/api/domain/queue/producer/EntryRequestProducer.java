@@ -8,6 +8,11 @@ import org.slf4j.LoggerFactory;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Component;
 
+/**
+ * 입장 요청 이벤트를 "entry.requested" 토픽에 발행하는 Producer.
+ * 파티션 키를 eventId로 둬서, 같은 이벤트(공연)에 대한 요청은 같은 파티션에서
+ * 순서대로 처리되도록 보장한다.
+ */
 @Component
 @RequiredArgsConstructor
 public class EntryRequestProducer {
@@ -16,6 +21,11 @@ public class EntryRequestProducer {
 
     private final KafkaTemplate<String, EntryRequestedEvent> kafkaTemplate;
 
+    /**
+     * 입장 요청 이벤트를 발행한다.
+     *
+     * @param event 발행할 입장 요청 이벤트
+     */
     public void send(EntryRequestedEvent event) {
         String key = String.valueOf(event.eventId());
         kafkaTemplate.send(KafkaTopicConfig.ENTRY_REQUESTED, key, event)

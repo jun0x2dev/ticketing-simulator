@@ -13,7 +13,10 @@
 
 ## 관련 이벤트 (Kafka 토픽)
 
-Event 도메인 자체는 Kafka 이벤트를 발행하지 않는다. 다만 `EventController`에 임시로 추가된
-`POST /api/v1/events/{eventId}/entry-requests`가 `entry.requested` 토픽(queue 도메인 소유)으로
-입장 요청 1건을 수동 발행한다 — load-generator 구현 전까지 Kafka 연동 확인용 테스트 엔드포인트다.
-simulation 도메인이 구현되면 이 테스트 엔드포인트는 제거하고 load-generator가 대량으로 발행하는 구조로 대체할 예정.
+Event 도메인 자체는 Kafka 이벤트를 발행하지 않는다. 입장 요청(`entry.requested`)은 queue 도메인이
+전담하며, simulation 도메인의 load-generator가 구현되면 그쪽에서 대량으로 발행하는 구조가 된다.
+
+> 과거에 `EventController`에 Kafka 연동 확인용 테스트 엔드포인트
+> (`POST /api/v1/events/{eventId}/entry-requests`)를 임시로 추가했었는데, 인증 없이 운영 코드에
+> 노출된 디버그용 엔드포인트라는 보안 리뷰 피드백에 따라 제거했다. 대신
+> `EntryRequestKafkaIntegrationTest`(EmbeddedKafka 기반 통합 테스트)로 대체했다.

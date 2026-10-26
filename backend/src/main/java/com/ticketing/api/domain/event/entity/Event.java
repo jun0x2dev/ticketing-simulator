@@ -11,6 +11,10 @@ import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
+/**
+ * 티케팅 대상이 되는 공연/행사 정보를 나타내는 엔티티.
+ * 좌석 수와 오픈 시각을 가지며, 상태 전이는 없는 단순 메타데이터다.
+ */
 @Entity
 @Table(name = "events")
 @Getter
@@ -36,6 +40,14 @@ public class Event {
         this.openAt = openAt;
     }
 
+    /**
+     * 이벤트를 생성하는 정적 팩토리 메서드.
+     *
+     * @param name      이벤트명
+     * @param seatCount 전체 좌석 수
+     * @param openAt    티케팅 오픈 시각
+     * @return 생성된 Event 인스턴스
+     */
     public static Event create(String name, int seatCount, LocalDateTime openAt) {
         return new Event(name, seatCount, openAt);
     }
