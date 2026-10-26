@@ -13,7 +13,8 @@
 - `POST /api/v1/seats/{seatId}/release` — `HELD`를 `AVAILABLE`로 되돌리고 락 강제 해제
 - 락 해제는 UUID 토큰이 일치할 때만 수행(TTL 만료 후 타 요청이 얻은 락 보호)
 - 선점 시 `heldAt`을 기록한다. `SeatHoldExpirationScheduler`가 5초마다(fixedDelay) `heldAt < now - 5분`인 `HELD` 좌석을 단일 UPDATE로 `AVAILABLE`로 복구한다 (Redis 락은 TTL로 이미 만료된 상태)
-- 미구현: 입장 토큰 검증, `confirm()` 호출(결제 연동)
+- 결제 승인 시 payment 도메인이 `confirmSeat`으로 `CONFIRMED` 전환, 거절 시 `releaseSeat` 호출
+- 미구현: 입장 토큰 검증, TTL 만료 해제 시 `seat.released` 발행
 
 ## 관련 이벤트 (Kafka 토픽)
 

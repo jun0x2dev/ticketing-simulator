@@ -27,6 +27,21 @@ public interface SeatService {
     List<SeatResponse> getSeats(Long eventId);
 
     /**
+     * 좌석 1석을 조회한다.
+     *
+     * @param seatId 좌석 ID
+     * @return 좌석 정보 (없으면 SEAT_NOT_FOUND 예외)
+     */
+    SeatResponse getSeat(Long seatId);
+
+    /**
+     * 결제 완료로 선점된 좌석을 확정(CONFIRMED)한다.
+     *
+     * @param seatId 확정할 좌석 ID
+     */
+    void confirmSeat(Long seatId);
+
+    /**
      * 좌석을 선점한다. Redis 분산 락으로 동시 요청 중 하나만 성공하도록 보장한다.
      *
      * @param seatId 선점할 좌석 ID
