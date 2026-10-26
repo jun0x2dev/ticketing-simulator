@@ -8,6 +8,10 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
+/**
+ * 전역 예외 처리기. CustomException은 warn 레벨로, 그 외 예상치 못한 예외는
+ * error 레벨 + 스택트레이스로 로깅한 뒤 공통 응답 포맷으로 변환한다.
+ */
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
