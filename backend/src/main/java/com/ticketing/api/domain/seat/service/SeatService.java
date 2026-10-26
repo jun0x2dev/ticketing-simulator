@@ -2,6 +2,7 @@ package com.ticketing.api.domain.seat.service;
 
 import com.ticketing.api.domain.event.entity.Event;
 import com.ticketing.api.domain.seat.dto.SeatResponse;
+import java.time.LocalDateTime;
 import java.util.List;
 
 /**
@@ -39,4 +40,13 @@ public interface SeatService {
      * @param seatId 해제할 좌석 ID
      */
     void releaseSeat(Long seatId);
+
+    /**
+     * 선점 후 결제 제한시간이 지난 HELD 좌석을 AVAILABLE로 복구한다.
+     * Redis 락은 TTL로 자동 만료되지만 DB 상태는 그대로이므로, 주기적으로 호출해 둘을 일치시킨다.
+     *
+     * @param heldBefore 이 시각 이전에 선점된 좌석을 복구 대상으로 본다
+     * @return 복구된 좌석 수
+     */
+    int releaseExpiredSeats(LocalDateTime heldBefore);
 }

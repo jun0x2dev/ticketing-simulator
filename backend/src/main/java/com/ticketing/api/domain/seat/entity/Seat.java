@@ -15,6 +15,8 @@ import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
 import jakarta.persistence.UniqueConstraint;
+import java.time.Duration;
+import java.time.LocalDateTime;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -30,6 +32,9 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class Seat {
 
+    // 결제 제한시간과 동일한 선점 유지 시간. Redis 락 TTL과 DB HELD 만료 기준이 모두 이 값을 따른다.
+    public static final Duration HOLD_TTL = Duration.ofMinutes(5);
+
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
@@ -44,6 +49,9 @@ public class Seat {
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)
     private SeatStatus status;
+
+    // 선점 시각. TTL 만료 스케줄러가 HELD 좌석의 만료 여부를 판단하는 기준이다.
+    private LocalDateTime heldAt;
 
     private Seat(Event event, int seatNumber) {
         this.event = event;
@@ -71,6 +79,7 @@ public class Seat {
             throw new CustomException(ErrorCode.SEAT_ALREADY_HELD);
         }
         this.status = SeatStatus.HELD;
+        this.heldAt = LocalDateTime.now();
     }
 
     /**
@@ -81,6 +90,7 @@ public class Seat {
             throw new CustomException(ErrorCode.SEAT_NOT_HELD);
         }
         this.status = SeatStatus.CONFIRMED;
+        this.heldAt = null;
     }
 
     /**
@@ -91,5 +101,6 @@ public class Seat {
             throw new CustomException(ErrorCode.SEAT_NOT_HELD);
         }
         this.status = SeatStatus.AVAILABLE;
+        this.heldAt = null;
     }
 }

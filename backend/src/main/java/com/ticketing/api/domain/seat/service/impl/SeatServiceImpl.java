@@ -8,7 +8,7 @@ import com.ticketing.api.domain.seat.repository.SeatRepository;
 import com.ticketing.api.domain.seat.service.SeatService;
 import com.ticketing.api.global.exception.CustomException;
 import com.ticketing.api.global.exception.ErrorCode;
-import java.time.Duration;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.stream.IntStream;
 import lombok.RequiredArgsConstructor;
@@ -27,9 +27,6 @@ import org.springframework.transaction.annotation.Transactional;
 public class SeatServiceImpl implements SeatService {
 
     private static final Logger log = LoggerFactory.getLogger(SeatServiceImpl.class);
-
-    // 결제 제한시간과 동일한 값. 이 시간 내 결제가 완료되지 않으면 락이 자동 만료되어 좌석이 재선점 가능해진다.
-    private static final Duration HOLD_TTL = Duration.ofMinutes(5);
 
     private final SeatRepository seatRepository;
     private final SeatLockManager seatLockManager;
@@ -55,7 +52,7 @@ public class SeatServiceImpl implements SeatService {
     @Transactional
     public SeatResponse holdSeat(Long seatId) {
         // 1. Redis 락 선점 시도 — 동시에 여러 요청이 들어와도 SET NX 1회 명령으로 단 하나만 성공한다.
-        String lockToken = seatLockManager.tryLock(seatId, HOLD_TTL);
+        String lockToken = seatLockManager.tryLock(seatId, Seat.HOLD_TTL);
         if (lockToken == null) {
             throw new CustomException(ErrorCode.SEAT_ALREADY_HELD);
         }
@@ -82,5 +79,15 @@ public class SeatServiceImpl implements SeatService {
         seat.release();
         seatLockManager.forceUnlock(seatId);
         log.info("좌석 선점 해제 완료 - seatId: {}", seatId);
+    }
+
+    @Override
+    @Transactional
+    public int releaseExpiredSeats(LocalDateTime heldBefore) {
+        int released = seatRepository.releaseExpiredHeldSeats(heldBefore);
+        if (released > 0) {
+            log.info("TTL 만료 좌석 복구 완료 - count: {}", released);
+        }
+        return released;
     }
 }

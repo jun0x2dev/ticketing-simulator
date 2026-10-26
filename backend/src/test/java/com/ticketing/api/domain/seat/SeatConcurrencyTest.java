@@ -60,6 +60,9 @@ class SeatConcurrencyTest {
 
     @BeforeEach
     void setUp() {
+        // 다른 테스트가 남긴 좌석이 섞이지 않도록 매번 비운다
+        seatRepository.deleteAll();
+        eventRepository.deleteAll();
         Event event = eventRepository.save(Event.create("콘서트 동시성 테스트", 1, LocalDateTime.now().plusDays(1)));
         Seat seat = seatRepository.save(Seat.create(event, 1));
         seatId = seat.getId();
