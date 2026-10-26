@@ -1,6 +1,7 @@
 package com.ticketing.api.domain.seat.service.impl;
 
 import com.ticketing.api.domain.event.entity.Event;
+import com.ticketing.api.domain.queue.token.EntryTokenManager;
 import com.ticketing.api.domain.seat.dto.SeatResponse;
 import com.ticketing.api.domain.seat.entity.Seat;
 import com.ticketing.api.domain.seat.lock.SeatLockManager;
@@ -30,6 +31,7 @@ public class SeatServiceImpl implements SeatService {
 
     private final SeatRepository seatRepository;
     private final SeatLockManager seatLockManager;
+    private final EntryTokenManager entryTokenManager;
 
     @Override
     @Transactional
@@ -66,7 +68,11 @@ public class SeatServiceImpl implements SeatService {
 
     @Override
     @Transactional
-    public SeatResponse holdSeat(Long seatId) {
+    public SeatResponse holdSeat(Long seatId, String entryToken) {
+        // 0. 토큰이 없거나 만료된 요청은 락/DB를 건드리기 전에 Redis 조회 한 번으로 걸러낸다.
+        Long tokenEventId = entryTokenManager.findEventId(entryToken)
+                .orElseThrow(() -> new CustomException(ErrorCode.ENTRY_TOKEN_INVALID));
+
         // 1. Redis 락 선점 시도 — 동시에 여러 요청이 들어와도 SET NX 1회 명령으로 단 하나만 성공한다.
         String lockToken = seatLockManager.tryLock(seatId, Seat.HOLD_TTL);
         if (lockToken == null) {
@@ -77,6 +83,10 @@ public class SeatServiceImpl implements SeatService {
             // 2. 락을 통과한 요청만 DB 상태를 HELD로 변경한다.
             Seat seat = seatRepository.findById(seatId)
                     .orElseThrow(() -> new CustomException(ErrorCode.SEAT_NOT_FOUND));
+            // 다른 이벤트의 입장 토큰으로 이 이벤트의 좌석을 잡지 못하게 한다.
+            if (!seat.getEvent().getId().equals(tokenEventId)) {
+                throw new CustomException(ErrorCode.ENTRY_TOKEN_INVALID);
+            }
             seat.hold();
             log.info("좌석 선점 완료 - seatId: {}", seatId);
             return SeatResponse.from(seat);
