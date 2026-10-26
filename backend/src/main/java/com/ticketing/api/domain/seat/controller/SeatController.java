@@ -8,6 +8,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -32,14 +33,17 @@ public class SeatController {
     }
 
     /**
-     * 좌석을 선점한다. 동시 요청이 들어와도 Redis 락 덕분에 단 하나만 성공한다.
+     * 좌석을 선점한다. 입장 토큰이 필요하며, 동시 요청이 들어와도 Redis 락 덕분에 단 하나만 성공한다.
      *
-     * @param seatId 선점할 좌석 ID
+     * @param seatId     선점할 좌석 ID
+     * @param entryToken 입장 허용 후 발급받은 토큰 (X-Entry-Token 헤더)
      * @return 선점된 좌석 정보
      */
     @PostMapping("/api/v1/seats/{seatId}/hold")
-    public ApiResponse<SeatResponse> holdSeat(@PathVariable Long seatId) {
-        return ApiResponse.success(seatService.holdSeat(seatId));
+    public ApiResponse<SeatResponse> holdSeat(
+            @PathVariable Long seatId,
+            @RequestHeader(value = "X-Entry-Token", required = false) String entryToken) {
+        return ApiResponse.success(seatService.holdSeat(seatId, entryToken));
     }
 
     /**

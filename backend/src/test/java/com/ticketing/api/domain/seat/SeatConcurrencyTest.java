@@ -4,12 +4,14 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.ticketing.api.domain.event.entity.Event;
 import com.ticketing.api.domain.event.repository.EventRepository;
+import com.ticketing.api.domain.queue.token.EntryTokenManager;
 import com.ticketing.api.domain.seat.entity.Seat;
 import com.ticketing.api.domain.seat.entity.SeatStatus;
 import com.ticketing.api.domain.seat.repository.SeatRepository;
 import com.ticketing.api.domain.seat.service.SeatService;
 import com.ticketing.api.global.exception.CustomException;
 import java.time.LocalDateTime;
+import java.util.UUID;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -56,7 +58,11 @@ class SeatConcurrencyTest {
     @Autowired
     private SeatRepository seatRepository;
 
+    @Autowired
+    private EntryTokenManager entryTokenManager;
+
     private Long seatId;
+    private String entryToken;
 
     @BeforeEach
     void setUp() {
@@ -64,6 +70,7 @@ class SeatConcurrencyTest {
         seatRepository.deleteAll();
         eventRepository.deleteAll();
         Event event = eventRepository.save(Event.create("콘서트 동시성 테스트", 1, LocalDateTime.now().plusDays(1)));
+        entryToken = entryTokenManager.issue(UUID.randomUUID().toString(), event.getId()).orElseThrow();
         Seat seat = seatRepository.save(Seat.create(event, 1));
         seatId = seat.getId();
     }
@@ -87,7 +94,7 @@ class SeatConcurrencyTest {
                 readyLatch.countDown();
                 try {
                     startLatch.await();
-                    seatService.holdSeat(seatId);
+                    seatService.holdSeat(seatId, entryToken);
                     successCount.incrementAndGet();
                 } catch (CustomException e) {
                     conflictCount.incrementAndGet();

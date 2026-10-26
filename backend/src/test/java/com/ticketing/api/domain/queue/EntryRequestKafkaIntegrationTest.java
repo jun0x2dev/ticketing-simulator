@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.ticketing.api.domain.queue.dto.EntryRequestedEvent;
 import com.ticketing.api.domain.queue.producer.EntryRequestProducer;
+import com.ticketing.api.domain.queue.service.EntryService;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.DisplayName;
@@ -15,6 +16,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.kafka.test.context.EmbeddedKafka;
 import org.springframework.test.context.TestPropertySource;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 /**
  * EntryRequestProducer가 발행한 메시지가 실제로 Kafka 토픽을 거쳐
@@ -25,6 +27,10 @@ import org.springframework.test.context.TestPropertySource;
 @EmbeddedKafka(partitions = 1, topics = {"entry.requested"})
 @TestPropertySource(properties = "spring.kafka.bootstrap-servers=${spring.embedded.kafka.brokers}")
 class EntryRequestKafkaIntegrationTest {
+
+    // 실제 Consumer가 Redis/입장 처리를 타지 않도록 서비스는 Mock으로 대체한다
+    @MockitoBean
+    private EntryService entryService;
 
     @Autowired
     private EntryRequestProducer entryRequestProducer;

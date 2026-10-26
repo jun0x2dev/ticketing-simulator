@@ -42,12 +42,13 @@ public interface SeatService {
     void confirmSeat(Long seatId);
 
     /**
-     * 좌석을 선점한다. Redis 분산 락으로 동시 요청 중 하나만 성공하도록 보장한다.
+     * 좌석을 선점한다. 입장 토큰을 먼저 검증하고, Redis 분산 락으로 동시 요청 중 하나만 성공하도록 보장한다.
      *
-     * @param seatId 선점할 좌석 ID
+     * @param seatId     선점할 좌석 ID
+     * @param entryToken 대기열을 통과해 발급받은 입장 토큰 (좌석이 속한 이벤트의 토큰이어야 한다)
      * @return 선점된 좌석 정보
      */
-    SeatResponse holdSeat(Long seatId);
+    SeatResponse holdSeat(Long seatId, String entryToken);
 
     /**
      * 선점된 좌석을 다시 선택 가능 상태로 되돌린다 (결제 실패/TTL 만료 시 사용).
