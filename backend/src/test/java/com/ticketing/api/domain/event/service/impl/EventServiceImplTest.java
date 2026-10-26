@@ -20,6 +20,9 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+/**
+ * EventServiceImpl 단위 테스트. Repository는 Mock으로 대체한다.
+ */
 @ExtendWith(MockitoExtension.class)
 class EventServiceImplTest {
 
@@ -29,6 +32,7 @@ class EventServiceImplTest {
     @InjectMocks
     private EventServiceImpl eventService;
 
+    // 정상적인 요청으로 이벤트를 생성하면 저장된 값 그대로 응답에 반영되는지 확인
     @Test
     @DisplayName("이벤트를 생성하면 저장된 정보를 응답으로 반환한다")
     void createEvent_success() {
@@ -45,6 +49,7 @@ class EventServiceImplTest {
         assertThat(response.seatCount()).isEqualTo(100);
     }
 
+    // 존재하는 이벤트를 ID로 조회하면 정상적으로 응답이 반환되는지 확인
     @Test
     @DisplayName("존재하는 이벤트를 조회하면 해당 이벤트 정보를 반환한다")
     void getEvent_success() {
@@ -59,6 +64,7 @@ class EventServiceImplTest {
         assertThat(response.name()).isEqualTo("콘서트 A");
     }
 
+    // 존재하지 않는 ID로 조회하면 EVENT_NOT_FOUND CustomException이 발생하는지 확인
     @Test
     @DisplayName("존재하지 않는 이벤트를 조회하면 예외가 발생한다")
     void getEvent_notFound() {

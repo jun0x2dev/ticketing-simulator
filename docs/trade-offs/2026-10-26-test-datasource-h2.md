@@ -18,9 +18,11 @@
 - Testcontainers가 더 정확한 통합 테스트지만, 지금 단계는 "컨텍스트가 뜨는지" 확인하는 수준이라
   과한 선택. 실제 Repository 슬라이스 테스트를 작성하는 시점에 Testcontainers 도입을 재검토한다.
 
-## 보류된 것
+## 추가 반영 (2026-10-26)
 
-- CLAUDE.md 3번 섹션은 Kafka Consumer/Producer를 EmbeddedKafka 또는 Testcontainers로 통합 테스트하라고
-  명시하는데, 이번 작업에서는 아직 추가하지 않았다. `EntryRequestConsumer`가 현재 로그만 남기는
-  placeholder라 통합 테스트의 가치가 낮아 보류했고, 실제 대기열 처리 로직(토큰 발급 등)이 들어가는 다음
-  단계에서 EmbeddedKafka 기반 통합 테스트를 추가할 예정.
+- 운영 코드(`EventController`)에 있던 Kafka 수동 테스트용 엔드포인트가 보안 리뷰에서 "인증 없는 디버그
+  엔드포인트 노출"로 지적됐다. 엔드포인트를 제거하고, 그 역할을 `EntryRequestKafkaIntegrationTest`
+  (`@EmbeddedKafka` 기반)로 대체했다. 이로써 CLAUDE.md 3번 섹션의 "Kafka Consumer/Producer는
+  EmbeddedKafka 또는 Testcontainers로 통합 테스트" 규칙도 충족한다.
+- 직렬화 과정에서 `java.time.Instant` 처리를 위해 `jackson-datatype-jsr310` 의존성이 빠져있던 걸
+  발견해서 추가했다 (관련 내용은 `docs/troubleshooting/2026-10-26-kafka-instant-serialization.md` 참고).
