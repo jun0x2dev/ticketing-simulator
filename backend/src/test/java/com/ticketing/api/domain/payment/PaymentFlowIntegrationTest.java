@@ -7,6 +7,7 @@ import static org.mockito.Mockito.when;
 
 import com.ticketing.api.domain.event.entity.Event;
 import com.ticketing.api.domain.event.repository.EventRepository;
+import com.ticketing.api.domain.queue.token.EntryTokenManager;
 import com.ticketing.api.domain.payment.dto.PaymentResponse;
 import com.ticketing.api.domain.payment.dto.SeatConfirmedEvent;
 import com.ticketing.api.domain.payment.dto.SeatReleasedEvent;
@@ -21,6 +22,7 @@ import com.ticketing.api.domain.seat.repository.SeatRepository;
 import com.ticketing.api.domain.seat.service.SeatService;
 import com.ticketing.api.global.exception.CustomException;
 import java.time.LocalDateTime;
+import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -73,7 +75,11 @@ class PaymentFlowIntegrationTest {
     @Autowired
     private EventRepository eventRepository;
 
+    @Autowired
+    private EntryTokenManager entryTokenManager;
+
     private Long seatId;
+    private String entryToken;
 
     @BeforeEach
     void setUp() {
@@ -82,8 +88,9 @@ class PaymentFlowIntegrationTest {
         seatRepository.deleteAll();
         eventRepository.deleteAll();
         Event event = eventRepository.save(Event.create("콘서트 결제 테스트", 1, LocalDateTime.now().plusDays(1)));
+        entryToken = entryTokenManager.issue(UUID.randomUUID().toString(), event.getId()).orElseThrow();
         seatId = seatRepository.save(Seat.create(event, 1)).getId();
-        seatService.holdSeat(seatId);
+        seatService.holdSeat(seatId, entryToken);
     }
 
     // 결제가 승인되면 좌석이 CONFIRMED가 되고 결제 기록과 이벤트가 남아야 한다
@@ -117,7 +124,7 @@ class PaymentFlowIntegrationTest {
         assertThat(response.status()).isEqualTo(PaymentStatus.FAILED);
         assertThat(seatRepository.findById(seatId).orElseThrow().getStatus()).isEqualTo(SeatStatus.AVAILABLE);
         verify(seatEventProducer).sendReleased(any(SeatReleasedEvent.class));
-        seatService.holdSeat(seatId);
+        seatService.holdSeat(seatId, entryToken);
     }
 
     // 이미 결제 완료된 좌석에 다시 결제를 시도하면 예외가 발생해야 한다

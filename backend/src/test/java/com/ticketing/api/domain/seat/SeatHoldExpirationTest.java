@@ -4,12 +4,14 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.ticketing.api.domain.event.entity.Event;
 import com.ticketing.api.domain.event.repository.EventRepository;
+import com.ticketing.api.domain.queue.token.EntryTokenManager;
 import com.ticketing.api.domain.seat.entity.Seat;
 import com.ticketing.api.domain.seat.entity.SeatStatus;
 import com.ticketing.api.domain.seat.lock.SeatLockManager;
 import com.ticketing.api.domain.seat.repository.SeatRepository;
 import com.ticketing.api.domain.seat.service.SeatService;
 import java.time.LocalDateTime;
+import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -52,7 +54,11 @@ class SeatHoldExpirationTest {
     @Autowired
     private SeatRepository seatRepository;
 
+    @Autowired
+    private EntryTokenManager entryTokenManager;
+
     private Long seatId;
+    private String entryToken;
 
     @BeforeEach
     void setUp() {
@@ -60,6 +66,7 @@ class SeatHoldExpirationTest {
         seatRepository.deleteAll();
         eventRepository.deleteAll();
         Event event = eventRepository.save(Event.create("콘서트 TTL 만료 테스트", 1, LocalDateTime.now().plusDays(1)));
+        entryToken = entryTokenManager.issue(UUID.randomUUID().toString(), event.getId()).orElseThrow();
         Seat seat = seatRepository.save(Seat.create(event, 1));
         seatId = seat.getId();
     }
@@ -69,7 +76,7 @@ class SeatHoldExpirationTest {
     @DisplayName("TTL이 지난 HELD 좌석은 AVAILABLE로 복구되어 다시 선점할 수 있다")
     void releaseExpiredSeats_expired_restoresAvailable() {
         // given
-        seatService.holdSeat(seatId);
+        seatService.holdSeat(seatId, entryToken);
         seatLockManager.forceUnlock(seatId); // 운영에서는 Redis TTL이 락을 스스로 해제한다
 
         // when
@@ -78,7 +85,7 @@ class SeatHoldExpirationTest {
         // then
         assertThat(released).isEqualTo(1);
         assertThat(seatRepository.findById(seatId).orElseThrow().getStatus()).isEqualTo(SeatStatus.AVAILABLE);
-        seatService.holdSeat(seatId);
+        seatService.holdSeat(seatId, entryToken);
     }
 
     // 선점 시각이 기준 시각 이후(아직 TTL 이내)인 좌석과 CONFIRMED 좌석은 건드리지 않아야 한다
@@ -86,7 +93,7 @@ class SeatHoldExpirationTest {
     @DisplayName("TTL 이내의 HELD 좌석은 복구되지 않는다")
     void releaseExpiredSeats_notExpired_keepsHeld() {
         // given
-        seatService.holdSeat(seatId);
+        seatService.holdSeat(seatId, entryToken);
 
         // when
         int released = seatService.releaseExpiredSeats(LocalDateTime.now().minusMinutes(1));

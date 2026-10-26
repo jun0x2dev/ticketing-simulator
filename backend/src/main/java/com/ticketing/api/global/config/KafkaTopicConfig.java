@@ -13,6 +13,7 @@ import org.springframework.kafka.config.TopicBuilder;
 public class KafkaTopicConfig {
 
     public static final String ENTRY_REQUESTED = "entry.requested";
+    public static final String ENTRY_REQUESTED_DLT = ENTRY_REQUESTED + ".DLT";
     public static final String ENTRY_GRANTED = "entry.granted";
     public static final String SEAT_CONFIRMED = "seat.confirmed";
     public static final String SEAT_RELEASED = "seat.released";
@@ -21,6 +22,12 @@ public class KafkaTopicConfig {
     @Bean
     public NewTopic entryRequestedTopic() {
         return TopicBuilder.name(ENTRY_REQUESTED).partitions(3).replicas(1).build();
+    }
+
+    /** 입장 요청 처리에 최대 재시도 후에도 실패한 메시지가 모이는 Dead Letter 토픽. */
+    @Bean
+    public NewTopic entryRequestedDltTopic() {
+        return TopicBuilder.name(ENTRY_REQUESTED_DLT).partitions(3).replicas(1).build();
     }
 
     /** 입장 허용 이벤트 토픽 (대기열 처리 결과). */
