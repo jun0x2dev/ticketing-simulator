@@ -1,0 +1,16 @@
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+
+# Local-only docs
+COMMIT.md
+
+# Secrets / local env
+.env
+.env.local
+application-local.properties
+application-local.yml
