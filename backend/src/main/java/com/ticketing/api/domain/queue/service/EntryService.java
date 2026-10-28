@@ -26,6 +26,14 @@ public interface EntryService {
     void grantEntry(EntryRequestedEvent event);
 
     /**
+     * 대기열을 거치지 않고 즉시 입장 토큰을 발급한다. 대기열 적용 전/후 부하 비교용 기준선(baseline) 시나리오에서만 쓴다.
+     *
+     * @param eventId 입장할 이벤트 ID (없으면 EVENT_NOT_FOUND 예외)
+     * @return 즉시 허용(GRANTED)된 상태와 토큰
+     */
+    EntryStatusResponse grantEntryDirectly(Long eventId);
+
+    /**
      * 입장 요청의 처리 상태를 조회한다.
      *
      * @param requestId 입장 요청 ID
