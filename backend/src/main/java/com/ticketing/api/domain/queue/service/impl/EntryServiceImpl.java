@@ -9,6 +9,7 @@ import com.ticketing.api.domain.queue.producer.EntryGrantedProducer;
 import com.ticketing.api.domain.queue.producer.EntryRequestProducer;
 import com.ticketing.api.domain.queue.service.EntryService;
 import com.ticketing.api.domain.queue.token.EntryTokenManager;
+import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -47,6 +48,14 @@ public class EntryServiceImpl implements EntryService {
         }
         entryGrantedProducer.send(EntryGrantedEvent.from(event));
         log.info("입장 허용 - requestId: {}, eventId: {}", event.requestId(), event.eventId());
+    }
+
+    @Override
+    public EntryStatusResponse grantEntryDirectly(Long eventId) {
+        eventService.getEvent(eventId);
+        String requestId = UUID.randomUUID().toString();
+        String token = entryTokenManager.issue(requestId, eventId).orElseThrow();
+        return EntryStatusResponse.granted(requestId, token);
     }
 
     @Override

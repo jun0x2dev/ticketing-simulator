@@ -10,6 +10,7 @@ DB entity 없이 producer/consumer, 서비스, Redis 토큰 관리자로 구성�
 - `POST /api/v1/events/{eventId}/entries` — 입장 요청 접수(202). 이벤트 존재를 확인한 뒤 `entry.requested`에 발행하고 `requestId`를 반환한다.
 - `EntryRequestConsumer`가 `queue.worker.tps`(기본 100)에 맞춰 토픽을 소비한다. 처리 후 `1000/tps`ms 대기하므로 못 처리한 요청은 Kafka에 쌓인다.
 - `EntryService.grantEntry`: 입장 토큰을 발급하고 `entry.granted`를 발행한다. 토큰 값은 이벤트에 싣지 않는다.
+- `POST /api/v1/events/{eventId}/entries/direct` — 대기열을 거치지 않고 즉시 토큰 발급. 부하 비교의 "대기열 적용 전" 기준선 전용이다.
 - `GET /api/v1/entries/{requestId}` — `WAITING`(토큰 없음, 존재하지 않는 requestId 포함) 또는 `GRANTED`(+토큰).
 - 토큰은 Redis 키 두 개로 관리한다. `entry:grant:{requestId}` → 토큰(요청당 1회 발급 = 멱등성 키), `entry:token:{token}` → eventId(선점 시 검증용). 둘 다 TTL `queue.token-ttl-seconds`(기본 600초).
 - 좌석 선점(`seat` 도메인)은 `X-Entry-Token` 헤더의 토큰이 유효하고 좌석의 이벤트와 같아야 한다.

@@ -34,6 +34,17 @@ public class EntryController {
     }
 
     /**
+     * 대기열 없이 즉시 입장 토큰을 발급한다. "대기열 적용 전" 부하 시나리오(k6)를 재현하기 위한 시뮬레이션용 API다.
+     *
+     * @param eventId 입장할 이벤트 ID
+     * @return 즉시 허용된 상태와 토큰
+     */
+    @PostMapping("/api/v1/events/{eventId}/entries/direct")
+    public ApiResponse<EntryStatusResponse> requestEntryDirectly(@PathVariable Long eventId) {
+        return ApiResponse.success(entryService.grantEntryDirectly(eventId));
+    }
+
+    /**
      * 입장 요청의 처리 상태를 조회한다. 허용되었으면 좌석 선점에 쓸 입장 토큰이 함께 반환된다.
      *
      * @param requestId 입장 요청 ID
