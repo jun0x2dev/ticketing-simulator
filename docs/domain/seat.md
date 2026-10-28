@@ -12,9 +12,10 @@
 - `POST /api/v1/seats/{seatId}/hold` — `X-Entry-Token` 헤더 필수(없음/만료/타 이벤트 토큰이면 `ENTRY_TOKEN_INVALID`). Redis `SET NX PX`(TTL 5분)로 락 획득 성공한 단 1건만 DB를 `HELD`로 변경. 실패 시 `SEAT_ALREADY_HELD`
 - `POST /api/v1/seats/{seatId}/release` — `HELD`를 `AVAILABLE`로 되돌리고 락 강제 해제
 - 락 해제는 UUID 토큰이 일치할 때만 수행(TTL 만료 후 타 요청이 얻은 락 보호)
-- 선점 시 `heldAt`을 기록한다. `SeatHoldExpirationScheduler`가 5초마다(fixedDelay) `heldAt < now - 5분`인 `HELD` 좌석을 단일 UPDATE로 `AVAILABLE`로 복구한다 (Redis 락은 TTL로 이미 만료된 상태)
+- 선점 시 `heldAt`을 기록한다. `SeatHoldExpirationScheduler`가 5초마다(fixedDelay) `heldAt < now - 5분`인 `HELD` 좌석을 행 잠금(`FOR UPDATE`)으로 조회해 `AVAILABLE`로 복구하고 `seat.released`(`TTL_EXPIRED`)를 발행한다 (Redis 락은 TTL로 이미 만료된 상태)
 - 결제 승인 시 payment 도메인이 `confirmSeat`으로 `CONFIRMED` 전환, 거절 시 `releaseSeat` 호출
-- 미구현: TTL 만료 해제 시 `seat.released` 발행
+- 좌석 상태가 바뀌면(선점/확정/해제/TTL 복구) 커밋 이후 `/topic/events/{eventId}/seats`로 `{eventId, seatId, status}`를 WebSocket 브로드캐스트한다 (`SeatStatusBroadcaster`)
+- WebSocket 접속: STOMP endpoint `/ws`, 구독 prefix `/topic`
 
 ## 관련 이벤트 (Kafka 토픽)
 

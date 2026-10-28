@@ -3,6 +3,7 @@ package com.ticketing.api.domain.seat.service.impl;
 import com.ticketing.api.domain.event.entity.Event;
 import com.ticketing.api.domain.queue.token.EntryTokenManager;
 import com.ticketing.api.domain.seat.dto.SeatResponse;
+import com.ticketing.api.domain.seat.dto.SeatStatusChangedEvent;
 import com.ticketing.api.domain.seat.entity.Seat;
 import com.ticketing.api.domain.seat.lock.SeatLockManager;
 import com.ticketing.api.domain.seat.repository.SeatRepository;
@@ -15,6 +16,7 @@ import java.util.stream.IntStream;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -32,6 +34,7 @@ public class SeatServiceImpl implements SeatService {
     private final SeatRepository seatRepository;
     private final SeatLockManager seatLockManager;
     private final EntryTokenManager entryTokenManager;
+    private final ApplicationEventPublisher eventPublisher;
 
     @Override
     @Transactional
@@ -63,6 +66,7 @@ public class SeatServiceImpl implements SeatService {
         Seat seat = seatRepository.findById(seatId)
                 .orElseThrow(() -> new CustomException(ErrorCode.SEAT_NOT_FOUND));
         seat.confirm();
+        publishStatusChanged(seat);
         log.info("좌석 확정 완료 - seatId: {}", seatId);
     }
 
@@ -88,6 +92,7 @@ public class SeatServiceImpl implements SeatService {
                 throw new CustomException(ErrorCode.ENTRY_TOKEN_INVALID);
             }
             seat.hold();
+            publishStatusChanged(seat);
             log.info("좌석 선점 완료 - seatId: {}", seatId);
             return SeatResponse.from(seat);
         } catch (RuntimeException e) {
@@ -103,17 +108,29 @@ public class SeatServiceImpl implements SeatService {
         Seat seat = seatRepository.findById(seatId)
                 .orElseThrow(() -> new CustomException(ErrorCode.SEAT_NOT_FOUND));
         seat.release();
+        publishStatusChanged(seat);
         seatLockManager.forceUnlock(seatId);
         log.info("좌석 선점 해제 완료 - seatId: {}", seatId);
     }
 
     @Override
     @Transactional
-    public int releaseExpiredSeats(LocalDateTime heldBefore) {
-        int released = seatRepository.releaseExpiredHeldSeats(heldBefore);
-        if (released > 0) {
-            log.info("TTL 만료 좌석 복구 완료 - count: {}", released);
+    public List<SeatResponse> releaseExpiredSeats(LocalDateTime heldBefore) {
+        List<SeatResponse> released = seatRepository.findExpiredHeldSeatsForUpdate(heldBefore).stream()
+                .map(seat -> {
+                    seat.release();
+                    publishStatusChanged(seat);
+                    return SeatResponse.from(seat);
+                })
+                .toList();
+        if (!released.isEmpty()) {
+            log.info("TTL 만료 좌석 복구 완료 - count: {}", released.size());
         }
         return released;
+    }
+
+    // 커밋 이후 WebSocket 브로드캐스트를 위해 상태 변경을 애플리케이션 이벤트로 알린다.
+    private void publishStatusChanged(Seat seat) {
+        eventPublisher.publishEvent(new SeatStatusChangedEvent(seat.getEvent().getId(), seat.getId(), seat.getStatus()));
     }
 }

@@ -5,12 +5,14 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.ticketing.api.domain.event.entity.Event;
 import com.ticketing.api.domain.event.repository.EventRepository;
 import com.ticketing.api.domain.queue.token.EntryTokenManager;
+import com.ticketing.api.domain.seat.dto.SeatResponse;
 import com.ticketing.api.domain.seat.entity.Seat;
 import com.ticketing.api.domain.seat.entity.SeatStatus;
 import com.ticketing.api.domain.seat.lock.SeatLockManager;
 import com.ticketing.api.domain.seat.repository.SeatRepository;
 import com.ticketing.api.domain.seat.service.SeatService;
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -80,10 +82,10 @@ class SeatHoldExpirationTest {
         seatLockManager.forceUnlock(seatId); // 운영에서는 Redis TTL이 락을 스스로 해제한다
 
         // when
-        int released = seatService.releaseExpiredSeats(LocalDateTime.now().plusMinutes(1));
+        List<SeatResponse> released = seatService.releaseExpiredSeats(LocalDateTime.now().plusMinutes(1));
 
         // then
-        assertThat(released).isEqualTo(1);
+        assertThat(released).hasSize(1);
         assertThat(seatRepository.findById(seatId).orElseThrow().getStatus()).isEqualTo(SeatStatus.AVAILABLE);
         seatService.holdSeat(seatId, entryToken);
     }
@@ -96,10 +98,10 @@ class SeatHoldExpirationTest {
         seatService.holdSeat(seatId, entryToken);
 
         // when
-        int released = seatService.releaseExpiredSeats(LocalDateTime.now().minusMinutes(1));
+        List<SeatResponse> released = seatService.releaseExpiredSeats(LocalDateTime.now().minusMinutes(1));
 
         // then
-        assertThat(released).isZero();
+        assertThat(released).isEmpty();
         assertThat(seatRepository.findById(seatId).orElseThrow().getStatus()).isEqualTo(SeatStatus.HELD);
     }
 }
