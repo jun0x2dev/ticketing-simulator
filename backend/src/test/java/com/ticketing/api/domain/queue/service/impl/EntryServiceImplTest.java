@@ -3,6 +3,7 @@ package com.ticketing.api.domain.queue.service.impl;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -99,6 +100,22 @@ class EntryServiceImplTest {
 
         // then
         verify(entryGrantedProducer, never()).send(any(EntryGrantedEvent.class));
+    }
+
+    // 대기열 없이 직접 입장하면 Kafka 발행 없이 즉시 토큰이 담긴 GRANTED가 반환되어야 한다
+    @Test
+    @DisplayName("직접 입장 시 대기열 발행 없이 즉시 토큰을 발급한다")
+    void grantEntryDirectly_issuesTokenWithoutQueue() {
+        // given
+        when(entryTokenManager.issue(any(String.class), eq(1L))).thenReturn(Optional.of("token"));
+
+        // when
+        EntryStatusResponse response = entryService.grantEntryDirectly(1L);
+
+        // then
+        assertThat(response.status()).isEqualTo(EntryStatus.GRANTED);
+        assertThat(response.token()).isEqualTo("token");
+        verify(entryRequestProducer, never()).send(any(EntryRequestedEvent.class));
     }
 
     // 토큰이 발급된 요청은 GRANTED와 토큰을, 아직 발급 전이면 WAITING을 반환해야 한다
