@@ -1,32 +1,23 @@
-# React + TypeScript + Vite
+# frontend
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+티케팅 시뮬레이터 화면 (Vite + React + TypeScript).
+설정 → 대기 → 좌석 선택 → 결제 → 결과 순서로 진행하며, 대기 알림과 좌석 현황은 WebSocket(STOMP)으로 실시간 반영한다.
 
-Currently, two official plugins are available:
+## 실행
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
-
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the Oxlint configuration
-
-If you are developing a production application, we recommend enabling type-aware lint rules by installing `oxlint-tsgolint` and editing `.oxlintrc.json`:
-
-```json
-{
-  "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["react", "typescript", "oxc"],
-  "options": {
-    "typeAware": true
-  },
-  "rules": {
-    "react/rules-of-hooks": "error",
-    "react/only-export-components": ["warn", { "allowConstantExport": true }]
-  }
-}
+```bash
+npm install
+npm run dev            # http://localhost:5173
 ```
 
-See the [Oxlint rules documentation](https://oxc.rs/docs/guide/usage/linter/rules) for the full list of rules and categories.
+개발 서버는 `/api`, `/ws` 요청을 백엔드로 프록시한다. 백엔드 주소 기본값은 `http://localhost:8080`이고,
+다른 포트면 `VITE_API_TARGET=http://localhost:18080 npm run dev`처럼 바꾼다.
+
+## 구조
+
+| 경로 | 역할 |
+|---|---|
+| `src/pages/*` | 단계별 화면 (simulation-setup, waiting-room, seat-selection, payment, result-dashboard) |
+| `src/shared/api/client.ts` | 공통 응답 포맷을 푸는 fetch 래퍼와 API 타입 |
+| `src/shared/websocket` | STOMP 구독 훅, 실시간 좌석 현황 훅 |
+| `src/shared/ui` | 화면 간 공통 컴포넌트 |
