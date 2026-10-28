@@ -62,7 +62,7 @@ public interface SeatService {
      * Redis 락은 TTL로 자동 만료되지만 DB 상태는 그대로이므로, 주기적으로 호출해 둘을 일치시킨다.
      *
      * @param heldBefore 이 시각 이전에 선점된 좌석을 복구 대상으로 본다
-     * @return 복구된 좌석 수
+     * @return 복구된 좌석 목록
      */
-    int releaseExpiredSeats(LocalDateTime heldBefore);
+    List<SeatResponse> releaseExpiredSeats(LocalDateTime heldBefore);
 }
