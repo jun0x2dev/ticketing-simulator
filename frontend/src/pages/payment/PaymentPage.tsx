@@ -11,16 +11,18 @@ interface Props {
   concert: Concert
   event: Event
   seat: Seat
+  token: string
   onPaid: (payment: Payment) => void
   onBack: () => void
 }
 
 /** 예매 정보를 확인하고 결제 제한시간 안에 모의 결제를 진행한다. */
-export function PaymentPage({ concert, event, seat, onPaid, onBack }: Props) {
+export function PaymentPage({ concert, event, seat, token, onPaid, onBack }: Props) {
   const [remaining, setRemaining] = useState(HOLD_SECONDS)
   const [method, setMethod] = useState(PAYMENT_METHODS[0])
   const [agreed, setAgreed] = useState(false)
   const [paying, setPaying] = useState(false)
+  const [leaving, setLeaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
@@ -32,11 +34,18 @@ export function PaymentPage({ concert, event, seat, onPaid, onBack }: Props) {
     setPaying(true)
     setError(null)
     try {
-      onPaid(await api.pay(seat.id))
+      onPaid(await api.pay(seat.id, token))
     } catch (e) {
       setError((e as Error).message)
       setPaying(false)
     }
+  }
+
+  // 좌석을 풀고 돌아가야 같은 입장 토큰으로 다른 좌석을 잡을 수 있다. 이미 만료되어 해제에 실패해도 돌아가는 데는 문제없다.
+  const reselect = async () => {
+    setLeaving(true)
+    await api.releaseSeat(seat.id, token).catch(() => undefined)
+    onBack()
   }
 
   const expired = remaining === 0
@@ -111,10 +120,10 @@ export function PaymentPage({ concert, event, seat, onPaid, onBack }: Props) {
               {error}
             </p>
           )}
-          <button type="button" className="btn btn-primary btn-large btn-block" onClick={() => void pay()} disabled={!agreed || paying || expired}>
+          <button type="button" className="btn btn-primary btn-large btn-block" onClick={() => void pay()} disabled={!agreed || paying || leaving || expired}>
             {paying ? '결제 진행 중…' : `${formatPrice(concert.price)} 결제하기`}
           </button>
-          <button type="button" className="btn btn-ghost btn-block" onClick={onBack} disabled={paying}>
+          <button type="button" className="btn btn-ghost btn-block" onClick={() => void reselect()} disabled={paying || leaving}>
             좌석 다시 선택
           </button>
         </aside>

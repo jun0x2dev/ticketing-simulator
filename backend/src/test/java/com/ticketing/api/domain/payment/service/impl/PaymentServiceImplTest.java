@@ -35,6 +35,7 @@ class PaymentServiceImplTest {
 
     private static final Long SEAT_ID = 10L;
     private static final Long EVENT_ID = 1L;
+    private static final String TOKEN = "entry-token";
 
     @Mock
     private PaymentRepository paymentRepository;
@@ -56,17 +57,17 @@ class PaymentServiceImplTest {
     @DisplayName("결제가 승인되면 좌석을 확정하고 seat.confirmed를 발행한다")
     void pay_approved_confirmsSeat() {
         // given
-        when(seatService.getSeat(SEAT_ID)).thenReturn(seat(SeatStatus.HELD));
+        when(seatService.getHeldSeat(SEAT_ID, TOKEN)).thenReturn(seat(SeatStatus.HELD));
         when(paymentGateway.charge()).thenReturn(true);
         when(paymentRepository.save(any(Payment.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
         // when
-        PaymentResponse response = paymentService.pay(SEAT_ID);
+        PaymentResponse response = paymentService.pay(SEAT_ID, TOKEN);
 
         // then
         assertThat(response.status()).isEqualTo(PaymentStatus.SUCCESS);
-        verify(seatService).confirmSeat(SEAT_ID);
-        verify(seatService, never()).releaseSeat(SEAT_ID);
+        verify(seatService).confirmSeat(SEAT_ID, TOKEN);
+        verify(seatService, never()).releaseSeat(SEAT_ID, TOKEN);
         verify(seatEventProducer).sendConfirmed(any(SeatConfirmedEvent.class));
     }
 
@@ -75,17 +76,17 @@ class PaymentServiceImplTest {
     @DisplayName("결제가 거절되면 좌석을 해제하고 seat.released를 발행한다")
     void pay_declined_releasesSeat() {
         // given
-        when(seatService.getSeat(SEAT_ID)).thenReturn(seat(SeatStatus.HELD));
+        when(seatService.getHeldSeat(SEAT_ID, TOKEN)).thenReturn(seat(SeatStatus.HELD));
         when(paymentGateway.charge()).thenReturn(false);
         when(paymentRepository.save(any(Payment.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
         // when
-        PaymentResponse response = paymentService.pay(SEAT_ID);
+        PaymentResponse response = paymentService.pay(SEAT_ID, TOKEN);
 
         // then
         assertThat(response.status()).isEqualTo(PaymentStatus.FAILED);
-        verify(seatService).releaseSeat(SEAT_ID);
-        verify(seatService, never()).confirmSeat(SEAT_ID);
+        verify(seatService).releaseSeat(SEAT_ID, TOKEN);
+        verify(seatService, never()).confirmSeat(SEAT_ID, TOKEN);
         verify(seatEventProducer).sendReleased(any(SeatReleasedEvent.class));
     }
 
@@ -94,15 +95,30 @@ class PaymentServiceImplTest {
     @DisplayName("선점 상태가 아닌 좌석은 결제를 시도하지 않고 SEAT_NOT_HELD 예외가 발생한다")
     void pay_seatNotHeld_throwsWithoutCharging() {
         // given
-        when(seatService.getSeat(SEAT_ID)).thenReturn(seat(SeatStatus.AVAILABLE));
+        when(seatService.getHeldSeat(SEAT_ID, TOKEN)).thenThrow(new CustomException(ErrorCode.SEAT_NOT_HELD));
 
         // when & then
-        assertThatThrownBy(() -> paymentService.pay(SEAT_ID))
+        assertThatThrownBy(() -> paymentService.pay(SEAT_ID, TOKEN))
                 .isInstanceOf(CustomException.class)
                 .extracting(e -> ((CustomException) e).getErrorCode())
                 .isEqualTo(ErrorCode.SEAT_NOT_HELD);
         verify(paymentGateway, never()).charge();
         verify(paymentRepository, never()).save(any(Payment.class));
+    }
+
+    // 다른 사람이 선점한 좌석은 결제 게이트웨이를 호출하기 전에 거절되어야 한다
+    @Test
+    @DisplayName("선점자가 아니면 결제를 시도하지 않고 SEAT_HOLDER_MISMATCH 예외가 발생한다")
+    void pay_notHolder_throwsWithoutCharging() {
+        // given
+        when(seatService.getHeldSeat(SEAT_ID, TOKEN)).thenThrow(new CustomException(ErrorCode.SEAT_HOLDER_MISMATCH));
+
+        // when & then
+        assertThatThrownBy(() -> paymentService.pay(SEAT_ID, TOKEN))
+                .isInstanceOf(CustomException.class)
+                .extracting(e -> ((CustomException) e).getErrorCode())
+                .isEqualTo(ErrorCode.SEAT_HOLDER_MISMATCH);
+        verify(paymentGateway, never()).charge();
     }
 
     private SeatResponse seat(SeatStatus status) {

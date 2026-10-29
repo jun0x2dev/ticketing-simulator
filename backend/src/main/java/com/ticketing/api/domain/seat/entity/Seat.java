@@ -53,6 +53,10 @@ public class Seat {
     // 선점 시각. TTL 만료 스케줄러가 HELD 좌석의 만료 여부를 판단하는 기준이다.
     private LocalDateTime heldAt;
 
+    // 선점한 사용자의 입장 토큰. 결제/해제 요청이 선점한 본인의 것인지 확인하는 기준이다.
+    @Column(name = "held_by", length = 36)
+    private String heldBy;
+
     private Seat(Event event, int seatNumber) {
         this.event = event;
         this.seatNumber = seatNumber;
@@ -73,13 +77,30 @@ public class Seat {
     /**
      * 좌석을 선점 상태로 전환한다. Redis 락을 먼저 획득한 뒤 호출되는 것을 전제로 하며,
      * 엔티티 레벨에서도 상태를 검증해 이중 방어선을 둔다.
+     *
+     * @param holderToken 선점하는 사용자의 입장 토큰
      */
-    public void hold() {
+    public void hold(String holderToken) {
         if (this.status != SeatStatus.AVAILABLE) {
             throw new CustomException(ErrorCode.SEAT_ALREADY_HELD);
         }
         this.status = SeatStatus.HELD;
         this.heldAt = LocalDateTime.now();
+        this.heldBy = holderToken;
+    }
+
+    /**
+     * 주어진 입장 토큰으로 선점 중인 좌석인지 확인한다. 결제/해제 전에 호출해서 남의 좌석을 건드리지 못하게 한다.
+     *
+     * @param holderToken 요청한 사용자의 입장 토큰
+     */
+    public void verifyHolder(String holderToken) {
+        if (this.status != SeatStatus.HELD) {
+            throw new CustomException(ErrorCode.SEAT_NOT_HELD);
+        }
+        if (holderToken == null || !holderToken.equals(this.heldBy)) {
+            throw new CustomException(ErrorCode.SEAT_HOLDER_MISMATCH);
+        }
     }
 
     /**
@@ -91,6 +112,7 @@ public class Seat {
         }
         this.status = SeatStatus.CONFIRMED;
         this.heldAt = null;
+        this.heldBy = null;
     }
 
     /**
@@ -102,5 +124,6 @@ public class Seat {
         }
         this.status = SeatStatus.AVAILABLE;
         this.heldAt = null;
+        this.heldBy = null;
     }
 }

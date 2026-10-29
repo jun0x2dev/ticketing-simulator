@@ -47,13 +47,16 @@ public class SeatController {
     }
 
     /**
-     * 선점된 좌석을 다시 선택 가능 상태로 되돌린다.
+     * 선점한 사용자가 좌석을 다시 선택 가능 상태로 되돌린다 (결제 화면에서 좌석을 다시 고를 때).
      *
-     * @param seatId 해제할 좌석 ID
+     * @param seatId     해제할 좌석 ID
+     * @param entryToken 좌석을 선점할 때 쓴 입장 토큰 (X-Entry-Token 헤더)
      */
     @PostMapping("/api/v1/seats/{seatId}/release")
-    public ApiResponse<Void> releaseSeat(@PathVariable Long seatId) {
-        seatService.releaseSeat(seatId);
+    public ApiResponse<Void> releaseSeat(
+            @PathVariable Long seatId,
+            @RequestHeader(value = "X-Entry-Token", required = false) String entryToken) {
+        seatService.releaseSeat(seatId, entryToken);
         return ApiResponse.success(null);
     }
 }

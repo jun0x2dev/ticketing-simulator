@@ -79,7 +79,9 @@ class SeatHoldExpirationTest {
     void releaseExpiredSeats_expired_restoresAvailable() {
         // given
         seatService.holdSeat(seatId, entryToken);
-        seatLockManager.forceUnlock(seatId); // 운영에서는 Redis TTL이 락을 스스로 해제한다
+        // 운영에서는 Redis TTL이 좌석 락과 토큰 선점 표시를 스스로 해제한다
+        seatLockManager.forceUnlock(seatId);
+        seatLockManager.clearHolder(entryToken);
 
         // when
         List<SeatResponse> released = seatService.releaseExpiredSeats(LocalDateTime.now().plusMinutes(1));

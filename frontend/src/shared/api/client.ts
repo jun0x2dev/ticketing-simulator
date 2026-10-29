@@ -94,6 +94,9 @@ export const api = {
   getSeats: (eventId: number) => request<Seat[]>(`/api/v1/events/${eventId}/seats`),
   holdSeat: (seatId: number, token: string) =>
     postJson<Seat>(`/api/v1/seats/${seatId}/hold`, undefined, { 'X-Entry-Token': token }),
-  pay: (seatId: number) => postJson<Payment>('/api/v1/payments', { seatId }),
+  releaseSeat: (seatId: number, token: string) =>
+    postJson<null>(`/api/v1/seats/${seatId}/release`, undefined, { 'X-Entry-Token': token }),
+  pay: (seatId: number, token: string) =>
+    postJson<Payment>('/api/v1/payments', { seatId }, { 'X-Entry-Token': token }),
   getStats: (eventId: number) => request<EventStats>(`/api/v1/events/${eventId}/stats`),
 }

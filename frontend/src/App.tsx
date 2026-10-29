@@ -51,6 +51,7 @@ function App() {
             concert={step.concert}
             event={step.event}
             seat={step.seat}
+            token={step.token}
             onPaid={(payment) => setStep({ ...step, name: 'result', payment })}
             onBack={() => setStep({ name: 'seats', concert: step.concert, event: step.event, token: step.token })}
           />
