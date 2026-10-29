@@ -2,6 +2,16 @@
 
 export type SeatStatus = 'AVAILABLE' | 'HELD' | 'CONFIRMED'
 
+export interface Concert {
+  id: number
+  title: string
+  performer: string
+  genre: string
+  venue: string
+  seatCount: number
+  price: number
+}
+
 export interface Event {
   id: number
   name: string
@@ -63,8 +73,8 @@ function postJson<T>(path: string, payload?: unknown, headers?: Record<string, s
 }
 
 export const api = {
-  createEvent: (name: string, seatCount: number, openAt: string) =>
-    postJson<Event>('/api/v1/events', { name, seatCount, openAt }),
+  getConcerts: () => request<Concert[]>('/api/v1/concerts'),
+  startRun: (concertId: number) => postJson<Event>(`/api/v1/concerts/${concertId}/runs`),
   requestEntry: (eventId: number) =>
     postJson<{ requestId: string }>(`/api/v1/events/${eventId}/entries`),
   getEntryStatus: (requestId: string) => request<EntryStatus>(`/api/v1/entries/${requestId}`),

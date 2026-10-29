@@ -22,7 +22,7 @@
 
 백엔드 핵심 흐름 구현 완료: 이벤트/좌석 생성 → 입장 요청(Kafka 대기열, TPS 제한) → 입장 토큰(Redis) →
 좌석 선점(Redis 락) → Mock 결제 → 좌석 확정/해제, 결제 TTL 만료 자동 해제, WebSocket 실시간 알림.
-프론트엔드(설정 → 대기 → 좌석 선택 → 결제 → 결과) 화면 연결 완료. 실행 방법은 [`frontend/README.md`](./frontend/README.md) 참고.
+프론트엔드(공연 목록 → 대기 → 좌석 선택 → 결제 → 예매 완료) 화면 연결 완료. 실행 방법은 [`frontend/README.md`](./frontend/README.md) 참고.
 
 ## 부하 테스트: 대기열 적용 전/후
 
