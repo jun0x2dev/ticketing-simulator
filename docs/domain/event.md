@@ -7,7 +7,8 @@
 
 ## 주요 상태/흐름
 
-- Event는 생성 이후 별도 상태 전이가 없다 (단순 메타데이터).
+- Event는 생성 이후 별도 상태 전이가 없다 (단순 메타데이터). 사용자가 공연을 고를 때마다 생기는 "회차" 단위다.
+- 지난 회차 정리: `EventRunCleanupScheduler`가 매시 정각(`event.run-cleanup-cron`)에 오픈 시각이 24시간(`event.run-retention-hours`) 넘게 지난 회차를 100개씩 묶어 좌석 → 회차 순으로 삭제한다. 결제 기록(payments)은 이력으로 남긴다. `events.open_at`에 인덱스를 둔다.
 - `POST /api/v1/events` — 이벤트 생성
 - `GET /api/v1/events/{eventId}` — 이벤트 조회
 

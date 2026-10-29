@@ -65,4 +65,12 @@ public interface SeatService {
      * @return 복구된 좌석 목록
      */
     List<SeatResponse> releaseExpiredSeats(LocalDateTime heldBefore);
+
+    /**
+     * 여러 회차의 좌석을 모두 삭제한다. 지난 회차 정리에서만 쓴다.
+     *
+     * @param eventIds 좌석을 지울 회차 ID 목록
+     * @return 삭제된 좌석 수
+     */
+    int deleteSeatsOfEvents(List<Long> eventIds);
 }

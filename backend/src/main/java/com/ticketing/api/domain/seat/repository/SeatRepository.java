@@ -6,6 +6,7 @@ import java.time.LocalDateTime;
 import java.util.List;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -33,4 +34,14 @@ public interface SeatRepository extends JpaRepository<Seat, Long> {
     @Query("select s from Seat s where s.status = com.ticketing.api.domain.seat.entity.SeatStatus.HELD "
             + "and s.heldAt < :heldBefore")
     List<Seat> findExpiredHeldSeatsForUpdate(@Param("heldBefore") LocalDateTime heldBefore);
+
+    /**
+     * 여러 회차의 좌석을 한 번의 DELETE로 지운다. 회차 정리 시 회차보다 먼저 호출해야 한다(좌석이 회차를 참조).
+     *
+     * @param eventIds 좌석을 지울 회차 ID 목록
+     * @return 삭제된 좌석 수
+     */
+    @Modifying(clearAutomatically = true)
+    @Query("delete from Seat s where s.event.id in :eventIds")
+    int deleteByEventIds(@Param("eventIds") List<Long> eventIds);
 }
