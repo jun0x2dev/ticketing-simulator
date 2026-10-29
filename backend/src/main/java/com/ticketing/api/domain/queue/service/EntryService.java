@@ -10,7 +10,7 @@ import com.ticketing.api.domain.queue.dto.EntryStatusResponse;
 public interface EntryService {
 
     /**
-     * 입장 요청을 접수해서 대기열(entry.requested)에 적재한다.
+     * 입장 요청을 접수해서 대기 순번을 매기고 대기열(entry.requested)에 적재한다.
      *
      * @param eventId 입장할 이벤트 ID (없으면 EVENT_NOT_FOUND 예외)
      * @return 접수된 요청 ID
@@ -36,8 +36,9 @@ public interface EntryService {
     /**
      * 입장 요청의 처리 상태를 조회한다.
      *
+     * @param eventId   이벤트 ID (이벤트별 대기열에서 순번을 찾는다)
      * @param requestId 입장 요청 ID
-     * @return 대기 중이면 WAITING, 허용되었으면 토큰을 포함한 GRANTED
+     * @return 대기 중이면 순번/예상 대기 시간을 포함한 WAITING, 허용되었으면 토큰을 포함한 GRANTED
      */
-    EntryStatusResponse getEntryStatus(String requestId);
+    EntryStatusResponse getEntryStatus(Long eventId, String requestId);
 }

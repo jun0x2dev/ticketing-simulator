@@ -9,7 +9,7 @@ import org.springframework.stereotype.Component;
 
 /**
  * "entry.granted" 토픽을 구독해서 입장이 허용된 요청의 대기 화면에 WebSocket으로 알려주는 릴레이.
- * 메시지에는 토큰이 없으므로, 클라이언트는 알림을 받은 뒤 {@code GET /api/v1/entries/{requestId}}로 토큰을 가져간다.
+ * 메시지에는 토큰이 없으므로, 클라이언트는 알림을 받은 뒤 {@code GET /api/v1/events/{eventId}/entries/{requestId}}로 토큰을 가져간다.
  */
 @Component
 @RequiredArgsConstructor

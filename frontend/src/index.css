@@ -421,30 +421,30 @@ summary:focus-visible {
   color: var(--brand);
 }
 
-.indeterminate {
-  height: 4px;
-  overflow: hidden;
-  background: var(--line);
-  border-radius: 2px;
+.waiting-progress span {
+  transition: width 0.6s ease-out;
 }
 
-.indeterminate span {
-  display: block;
-  width: 35%;
-  height: 100%;
-  background: var(--brand);
-  border-radius: 2px;
-  animation: slide 1.4s ease-in-out infinite;
+.waiting-stats {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
 }
 
-@keyframes slide {
-  from {
-    transform: translateX(-100%);
-  }
+.waiting-stats div {
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
 
-  to {
-    transform: translateX(300%);
-  }
+.waiting-stats dt {
+  font-size: 0.8rem;
+  color: var(--sub);
+}
+
+.waiting-stats dd {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
 }
 
 .notice-list {
@@ -945,11 +945,6 @@ summary:focus-visible {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .indeterminate span {
-    width: 100%;
-    animation: none;
-  }
-
   .concert-card .poster,
   .progress span {
     transition: none;

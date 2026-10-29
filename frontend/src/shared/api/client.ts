@@ -30,6 +30,10 @@ export interface EntryStatus {
   requestId: string
   status: 'WAITING' | 'GRANTED'
   token: string | null
+  // 대기 중일 때만 채워진다. 줄에서 막 빠져 입장 처리 중이면 null이다.
+  position: number | null
+  behind: number | null
+  estimatedSeconds: number | null
 }
 
 export interface Payment {
@@ -77,7 +81,8 @@ export const api = {
   startRun: (concertId: number) => postJson<Event>(`/api/v1/concerts/${concertId}/runs`),
   requestEntry: (eventId: number) =>
     postJson<{ requestId: string }>(`/api/v1/events/${eventId}/entries`),
-  getEntryStatus: (requestId: string) => request<EntryStatus>(`/api/v1/entries/${requestId}`),
+  getEntryStatus: (eventId: number, requestId: string) =>
+    request<EntryStatus>(`/api/v1/events/${eventId}/entries/${requestId}`),
   getSeats: (eventId: number) => request<Seat[]>(`/api/v1/events/${eventId}/seats`),
   holdSeat: (seatId: number, token: string) =>
     postJson<Seat>(`/api/v1/seats/${seatId}/hold`, undefined, { 'X-Entry-Token': token }),
