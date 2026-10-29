@@ -39,6 +39,17 @@ class GlobalExceptionHandlerTest {
                 .andExpect(jsonPath("$.error.code").value("INVALID_REQUEST"));
     }
 
+    // 좌석 수 상한(500석)을 넘는 요청은 400이어야 한다
+    @Test
+    @DisplayName("좌석 수가 상한을 넘으면 400 INVALID_REQUEST로 응답한다")
+    void seatCountOverLimit_returnsBadRequest() throws Exception {
+        mockMvc.perform(post("/api/v1/events")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"공연\",\"seatCount\":5000,\"openAt\":\"2099-01-01T00:00:00\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("INVALID_REQUEST"));
+    }
+
     // 경로 변수 타입이 맞지 않으면 400이어야 한다
     @Test
     @DisplayName("타입이 맞지 않는 경로 변수는 400 INVALID_REQUEST로 응답한다")

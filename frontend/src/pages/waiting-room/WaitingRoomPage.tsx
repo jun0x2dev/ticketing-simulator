@@ -1,14 +1,16 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { api, type Event } from '../../shared/api/client'
+import { api, type Concert, type Event } from '../../shared/api/client'
+import { LoadHint } from '../../shared/ui/LoadHint'
 import { useStompSubscription } from '../../shared/websocket/useStompSubscription'
 
 interface Props {
+  concert: Concert
   event: Event
   onGranted: (token: string) => void
 }
 
-/** 입장 요청을 대기열에 넣고, 입장이 허용되면 토큰을 받아 다음 단계로 넘긴다. */
-export function WaitingRoomPage({ event, onGranted }: Props) {
+/** 입장 요청을 대기열에 넣고, 입장이 허용되면 토큰을 받아 좌석 선택으로 넘어간다. */
+export function WaitingRoomPage({ concert, event, onGranted }: Props) {
   const [requestId, setRequestId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [elapsed, setElapsed] = useState(0)
@@ -49,24 +51,37 @@ export function WaitingRoomPage({ event, onGranted }: Props) {
     return () => clearInterval(timer)
   }, [])
 
+  const minutes = String(Math.floor(elapsed / 60)).padStart(2, '0')
+  const seconds = String(elapsed % 60).padStart(2, '0')
+
   return (
-    <section className="page page-waiting">
-      <p className="event-name">{event.name}</p>
-      {error ? (
-        <p className="error" role="alert">
-          {error}
-        </p>
-      ) : (
-        <>
-          <h1 className="title">입장 순서를 기다리고 있어요</h1>
-          <div className="queue-board">
-            <span className="queue-light" aria-hidden="true" />
-            <span className="queue-elapsed">{elapsed}</span>
-            <span className="queue-unit">초째 대기 중</span>
-          </div>
-          <p className="lead">차례가 되면 좌석 선택 화면으로 자동으로 넘어갑니다. 이 창을 닫지 마세요.</p>
-        </>
-      )}
+    <section className="waiting">
+      <div className="waiting-panel">
+        <p className="waiting-concert">{concert.title}</p>
+        <h1 className="waiting-title">예매 대기 중입니다</h1>
+        {error ? (
+          <p className="alert" role="alert">
+            {error}
+          </p>
+        ) : (
+          <>
+            <div className="waiting-time">
+              <span>나의 대기 시간</span>
+              <strong>
+                {minutes}:{seconds}
+              </strong>
+            </div>
+            <div className="indeterminate" aria-hidden="true">
+              <span />
+            </div>
+            <ul className="notice-list">
+              <li>순서가 되면 좌석 선택 화면으로 자동 이동합니다.</li>
+              <li>새로고침하거나 창을 닫으면 대기 순서가 초기화됩니다.</li>
+            </ul>
+          </>
+        )}
+      </div>
+      <LoadHint eventId={event.id} />
     </section>
   )
 }
