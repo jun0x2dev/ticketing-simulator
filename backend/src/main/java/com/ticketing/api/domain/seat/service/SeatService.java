@@ -72,6 +72,7 @@ public interface SeatService {
     /**
      * 선점 후 결제 제한시간이 지난 HELD 좌석을 AVAILABLE로 복구한다.
      * Redis 락은 TTL로 자동 만료되지만 DB 상태는 그대로이므로, 주기적으로 호출해 둘을 일치시킨다.
+     * 복구한 좌석마다 seat.released(TTL_EXPIRED)를 같은 트랜잭션에서 outbox에 기록한다.
      *
      * @param heldBefore 이 시각 이전에 선점된 좌석을 복구 대상으로 본다
      * @return 복구된 좌석 목록

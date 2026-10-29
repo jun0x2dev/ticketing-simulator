@@ -6,11 +6,12 @@ import com.ticketing.api.domain.payment.dto.SeatReleasedEvent;
 import com.ticketing.api.domain.payment.entity.Payment;
 import com.ticketing.api.domain.payment.entity.PaymentStatus;
 import com.ticketing.api.domain.payment.gateway.MockPaymentGateway;
-import com.ticketing.api.domain.payment.producer.SeatEventProducer;
+import com.ticketing.api.domain.outbox.service.OutboxService;
 import com.ticketing.api.domain.payment.repository.PaymentRepository;
 import com.ticketing.api.domain.payment.service.PaymentService;
 import com.ticketing.api.domain.seat.dto.SeatResponse;
 import com.ticketing.api.domain.seat.service.SeatService;
+import com.ticketing.api.global.config.KafkaTopicConfig;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -21,7 +22,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * PaymentService 구현체. 결제 게이트웨이 호출(지연 포함)은 트랜잭션 밖에서 수행하고,
- * 좌석 상태 변경과 결제 기록은 하나의 짧은 트랜잭션으로 묶어 처리한다.
+ * 좌석 상태 변경, 결제 기록, 발행할 이벤트(outbox)는 하나의 짧은 트랜잭션으로 묶어 처리한다.
  */
 @Service
 @RequiredArgsConstructor
@@ -33,7 +34,7 @@ public class PaymentServiceImpl implements PaymentService {
     private final PaymentRepository paymentRepository;
     private final SeatService seatService;
     private final MockPaymentGateway paymentGateway;
-    private final SeatEventProducer seatEventProducer;
+    private final OutboxService outboxService;
     // 게이트웨이 호출 이후의 DB 작업만 트랜잭션으로 묶기 위해 선언적 @Transactional 대신 사용한다.
     private final TransactionTemplate transactionTemplate;
 
@@ -47,22 +48,27 @@ public class PaymentServiceImpl implements PaymentService {
         boolean approved = paymentGateway.charge();
 
         if (approved) {
-            // 좌석 확정과 결제 기록을 한 트랜잭션으로 묶어, 기록 없이 확정만 된 좌석이 남지 않게 한다.
-            // 결제 중 선점이 만료되었거나 같은 좌석의 다른 결제가 먼저 상태를 바꿨다면 여기서 실패한다 (Mock이라 환불은 없음).
+            // 좌석 확정, 결제 기록, seat.confirmed 이벤트를 한 트랜잭션으로 묶는다. 커밋되면 이벤트도 반드시 발행되고,
+            // 롤백되면 셋 다 남지 않는다. 결제 중 선점이 만료되었거나 같은 좌석의 다른 결제가 먼저 상태를 바꿨다면
+            // 여기서 실패한다 (Mock이라 환불은 없음).
             Payment payment = transactionTemplate.execute(status -> {
                 seatService.confirmSeat(seatId, entryToken);
-                return paymentRepository.save(Payment.create(seatId, PaymentStatus.SUCCESS));
+                Payment saved = paymentRepository.save(Payment.create(seatId, PaymentStatus.SUCCESS));
+                outboxService.append(KafkaTopicConfig.SEAT_CONFIRMED, String.valueOf(seat.eventId()),
+                        SeatConfirmedEvent.of(seat.eventId(), seatId, saved.getId()));
+                return saved;
             });
-            seatEventProducer.sendConfirmed(SeatConfirmedEvent.of(seat.eventId(), seatId, payment.getId()));
             log.info("결제 승인 - seatId: {}, paymentId: {}", seatId, payment.getId());
             return PaymentResponse.from(payment);
         }
 
         Payment payment = transactionTemplate.execute(status -> {
             seatService.releaseSeat(seatId, entryToken);
-            return paymentRepository.save(Payment.create(seatId, PaymentStatus.FAILED));
+            Payment saved = paymentRepository.save(Payment.create(seatId, PaymentStatus.FAILED));
+            outboxService.append(KafkaTopicConfig.SEAT_RELEASED, String.valueOf(seat.eventId()),
+                    SeatReleasedEvent.paymentFailed(seat.eventId(), seatId, saved.getId()));
+            return saved;
         });
-        seatEventProducer.sendReleased(SeatReleasedEvent.paymentFailed(seat.eventId(), seatId, payment.getId()));
         log.info("결제 거절, 좌석 해제 - seatId: {}, paymentId: {}", seatId, payment.getId());
         return PaymentResponse.from(payment);
     }

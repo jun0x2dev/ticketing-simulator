@@ -4,7 +4,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -23,6 +26,7 @@ import com.ticketing.api.domain.queue.waiting.WaitingPosition;
 import com.ticketing.api.global.exception.CustomException;
 import com.ticketing.api.global.exception.ErrorCode;
 import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -60,6 +64,8 @@ class EntryServiceImplTest {
         // 예상 대기 시간 계산을 검증하기 위해 큐 워커 처리량을 초당 20명으로 고정한다
         entryService = new EntryServiceImpl(eventService, entryRequestProducer, entryGrantedProducer,
                 entryTokenManager, waitingLineManager, 20);
+        // 기본은 발행 성공. 발행을 쓰지 않는 테스트도 있어 lenient로 둔다
+        lenient().doReturn(CompletableFuture.completedFuture(null)).when(entryRequestProducer).send(any(EntryRequestedEvent.class));
     }
 
     // 존재하는 이벤트에 입장 요청을 하면 대기열에 적재되고 요청 ID가 반환되는지 확인
@@ -85,6 +91,49 @@ class EntryServiceImplTest {
         InOrder inOrder = inOrder(waitingLineManager, entryRequestProducer);
         inOrder.verify(waitingLineManager).join(1L, response.requestId());
         inOrder.verify(entryRequestProducer).send(any(EntryRequestedEvent.class));
+    }
+
+    // 브로커에 적재하지 못한 요청이 줄에 남으면 순번이 멈춘 채 기다리게 되므로, 줄에서 빼고 실패로 표시해야 한다
+    @Test
+    @DisplayName("entry.requested 발행이 실패하면 줄에서 빼고 최종 실패로 표시한다")
+    void requestEntry_publishFails_marksFailed() {
+        // given
+        doReturn(CompletableFuture.failedFuture(new IllegalStateException("broker down")))
+                .when(entryRequestProducer).send(any(EntryRequestedEvent.class));
+
+        // when
+        EntryRequestResponse response = entryService.requestEntry(1L);
+
+        // then
+        verify(waitingLineManager).leave(1L, response.requestId());
+        verify(entryTokenManager).markFailed(response.requestId());
+    }
+
+    // send() 호출 자체가 예외를 던져도(직렬화 실패 등) 접수 응답은 주고 같은 실패 처리를 거쳐야 한다
+    @Test
+    @DisplayName("발행 호출이 즉시 예외를 던져도 줄에서 빼고 최종 실패로 표시한다")
+    void requestEntry_sendThrows_marksFailed() {
+        // given
+        doThrow(new IllegalStateException("serialize failed")).when(entryRequestProducer).send(any(EntryRequestedEvent.class));
+
+        // when
+        EntryRequestResponse response = entryService.requestEntry(1L);
+
+        // then
+        verify(waitingLineManager).leave(1L, response.requestId());
+        verify(entryTokenManager).markFailed(response.requestId());
+    }
+
+    // 발행이 성공하면 줄에 그대로 두고 실패로 표시하지 않아야 한다
+    @Test
+    @DisplayName("entry.requested 발행이 성공하면 줄에 남기고 실패로 표시하지 않는다")
+    void requestEntry_publishSucceeds_keepsInLine() {
+        // when
+        EntryRequestResponse response = entryService.requestEntry(1L);
+
+        // then
+        verify(waitingLineManager, never()).leave(1L, response.requestId());
+        verify(entryTokenManager, never()).markFailed(any());
     }
 
     // 존재하지 않는 이벤트에 대한 입장 요청은 대기열에 적재되기 전에 거절되어야 한다
@@ -227,6 +276,23 @@ class EntryServiceImplTest {
 
         // then
         verify(entryRequestProducer, never()).send(any(EntryRequestedEvent.class));
+        verify(waitingLineManager).leave(1L, event.requestId());
+        verify(entryTokenManager).markFailed(event.requestId());
+    }
+
+    // 재투입 발행조차 실패하면 요청이 줄에 남아 멈추지 않도록 최종 실패로 처리해야 한다
+    @Test
+    @DisplayName("DLT 재투입 발행에 실패하면 줄에서 빼고 최종 실패로 표시한다")
+    void handleDeadLetter_redriveFails_marksFailed() {
+        // given
+        EntryRequestedEvent event = EntryRequestedEvent.of(1L);
+        doReturn(CompletableFuture.failedFuture(new IllegalStateException("broker down")))
+                .when(entryRequestProducer).send(any(EntryRequestedEvent.class));
+
+        // when
+        entryService.handleDeadLetter(event);
+
+        // then
         verify(waitingLineManager).leave(1L, event.requestId());
         verify(entryTokenManager).markFailed(event.requestId());
     }
