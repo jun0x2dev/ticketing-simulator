@@ -34,7 +34,7 @@ k6 가상 관객을 같은 회차에 보내면 내 화면에서 좌석이 실시
     │
 좌석 선택 ─ POST /seats/{id}/hold (X-Entry-Token) ─▶ Redis 락 → HELD ─▶ WebSocket /topic/events/{id}/seats
     │                                                   └ 5분 미결제 → 스케줄러 해제 → seat.released
-결제 ─ POST /payments ─▶ Mock 게이트웨이 ─▶ CONFIRMED + seat.confirmed / AVAILABLE + seat.released
+결제 ─ POST /payments (X-Entry-Token) ─▶ Mock 게이트웨이 ─▶ CONFIRMED + seat.confirmed / AVAILABLE + seat.released
     │
 예매 완료 ◀─ GET /events/{id}/stats (통계 Consumer 집계)
 ```
@@ -129,8 +129,8 @@ cd backend
 | POST | `/api/v1/events/{eventId}/entries/direct` | 대기열 없이 즉시 입장 (부하 비교 기준선용) |
 | GET | `/api/v1/events/{eventId}/seats` | 좌석 현황 |
 | POST | `/api/v1/seats/{seatId}/hold` | 좌석 선점 (`X-Entry-Token` 헤더 필요) |
-| POST | `/api/v1/seats/{seatId}/release` | 선점 해제 |
-| POST | `/api/v1/payments` | Mock 결제 `{ "seatId": 1 }` |
+| POST | `/api/v1/seats/{seatId}/release` | 선점 해제 (`X-Entry-Token` 헤더, 선점자 본인만) |
+| POST | `/api/v1/payments` | Mock 결제 `{ "seatId": 1 }` (`X-Entry-Token` 헤더, 선점자 본인만) |
 | GET | `/api/v1/events/{eventId}/stats` | 회차 통계 |
 
 WebSocket(STOMP) 엔드포인트는 `/ws`이고, `/topic/entries/{requestId}`(입장 허용), `/topic/events/{eventId}/seats`(좌석 상태)를 구독한다.

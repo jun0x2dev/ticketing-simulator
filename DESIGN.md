@@ -60,6 +60,7 @@
 ### 3.2 좌석 선점 동시성 제어
 
 - 좌석 단위 Redis 락(`SET NX PX`, key=`seat:lock:{seatId}`)으로 동시 선점 방지
+- 입장 토큰 하나로는 동시에 1석만 선점(`seat:holder:{token}`), 결제/해제는 선점한 토큰으로만 가능
 - 선점 성공 시 좌석 상태를 `HELD`로 변경하고 TTL(예: 5분) 설정
 - TTL 내 결제 미완료 시 자동으로 `AVAILABLE`로 복구 (Redis TTL 만료 이벤트 또는 스케줄러로 체크)
 
@@ -106,9 +107,11 @@ k6 시나리오용 `POST /api/v1/events`는 남겨 두되 좌석 수 상한은 5
 
 ### POST /api/v1/seats/{seatId}/hold
 
-입장 토큰 필요. 좌석 선점 시도.
+입장 토큰 필요. 좌석 선점 시도. 토큰 하나로는 동시에 1석만 선점할 수 있다.
 
 ### POST /api/v1/payments
+
+선점할 때 쓴 입장 토큰(`X-Entry-Token`)이 필요하다. 선점자 본인만 결제할 수 있다.
 
 ```json
 {

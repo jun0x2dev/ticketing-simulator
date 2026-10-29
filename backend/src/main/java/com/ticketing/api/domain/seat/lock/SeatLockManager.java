@@ -20,6 +20,7 @@ public class SeatLockManager {
 
     private static final Logger log = LoggerFactory.getLogger(SeatLockManager.class);
     private static final String LOCK_KEY_PREFIX = "seat:lock:";
+    private static final String HOLDER_KEY_PREFIX = "seat:holder:";
 
     private final StringRedisTemplate redisTemplate;
 
@@ -65,6 +66,29 @@ public class SeatLockManager {
      */
     public void forceUnlock(Long seatId) {
         redisTemplate.delete(lockKey(seatId));
+    }
+
+    /**
+     * 입장 토큰 하나가 동시에 1석만 선점하도록 토큰 단위 표시({@code seat:holder:{token}})를 건다.
+     * 좌석 락과 같은 TTL을 줘서, 선점이 만료되면 표시도 함께 사라진다.
+     *
+     * @param entryToken 선점하려는 사용자의 입장 토큰
+     * @param seatId     선점하려는 좌석 ID (표시 값으로 남겨 추적에 쓴다)
+     * @param ttl        표시 유지 시간
+     * @return 표시에 성공하면 true, 이미 다른 좌석을 선점 중이면 false
+     */
+    public boolean tryMarkHolder(String entryToken, Long seatId, Duration ttl) {
+        return Boolean.TRUE.equals(
+                redisTemplate.opsForValue().setIfAbsent(HOLDER_KEY_PREFIX + entryToken, String.valueOf(seatId), ttl));
+    }
+
+    /**
+     * 토큰 단위 선점 표시를 지운다. 선점 실패, 결제 확정, 해제 시 호출해서 다음 좌석을 잡을 수 있게 한다.
+     *
+     * @param entryToken 입장 토큰
+     */
+    public void clearHolder(String entryToken) {
+        redisTemplate.delete(HOLDER_KEY_PREFIX + entryToken);
     }
 
     private String lockKey(Long seatId) {
