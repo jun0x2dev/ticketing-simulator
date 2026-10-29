@@ -32,5 +32,13 @@ docker run --rm -i --cpus 1 -v "$PWD/load-generator:/s" grafana/k6 run \
   -e BASE_URL=http://host.docker.internal:18080 -e VUS=300 -e SEAT_COUNT=100 /s/direct.js
 ```
 
+화면에서 예매 중인 회차에 가상 관객을 보내려면 화면에 표시된 회차 번호를 `EVENT_ID`로 넘긴다.
+
+```bash
+k6 run -e EVENT_ID=12 -e VUS=100 load-generator/queue.js
+```
+
+좌석 수(`SEAT_COUNT`)는 서버 상한이 500석이다.
+
 선점 경쟁에서 지는 409는 정상 결과로 보고 `http_req_failed`에서 제외한다.
 Queue Worker 처리량은 앱 설정 `queue.worker.tps`(기본 100)로 조절한다.
