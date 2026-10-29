@@ -129,6 +129,12 @@ public class SeatServiceImpl implements SeatService {
         return released;
     }
 
+    @Override
+    @Transactional
+    public int deleteSeatsOfEvents(List<Long> eventIds) {
+        return seatRepository.deleteByEventIds(eventIds);
+    }
+
     // 커밋 이후 WebSocket 브로드캐스트를 위해 상태 변경을 애플리케이션 이벤트로 알린다.
     private void publishStatusChanged(Seat seat) {
         eventPublisher.publishEvent(new SeatStatusChangedEvent(seat.getEvent().getId(), seat.getId(), seat.getStatus()));

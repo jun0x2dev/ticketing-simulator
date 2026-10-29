@@ -3,6 +3,11 @@ package com.ticketing.api.domain.event.service.impl;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.inOrder;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.ticketing.api.domain.event.dto.EventCreateRequest;
@@ -13,13 +18,16 @@ import com.ticketing.api.domain.seat.service.SeatService;
 import com.ticketing.api.global.exception.CustomException;
 import com.ticketing.api.global.exception.ErrorCode;
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.InOrder;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.Pageable;
 
 /**
  * EventServiceImpl 단위 테스트. Repository는 Mock으로 대체한다.
@@ -80,5 +88,40 @@ class EventServiceImplTest {
                 .isInstanceOf(CustomException.class)
                 .extracting(e -> ((CustomException) e).getErrorCode())
                 .isEqualTo(ErrorCode.EVENT_NOT_FOUND);
+    }
+
+    // 좌석이 회차를 참조하므로 좌석을 먼저 지운 뒤 회차를 지워야 한다
+    @Test
+    @DisplayName("지난 회차를 지울 때 좌석을 먼저 삭제한 뒤 회차를 삭제한다")
+    void deleteRunsOpenedBefore_deletesSeatsThenEvents() {
+        // given
+        LocalDateTime cutoff = LocalDateTime.now().minusDays(1);
+        when(eventRepository.findIdsOpenedBefore(eq(cutoff), any(Pageable.class))).thenReturn(List.of(1L, 2L));
+
+        // when
+        int deleted = eventService.deleteRunsOpenedBefore(cutoff, 100);
+
+        // then
+        assertThat(deleted).isEqualTo(2);
+        InOrder inOrder = inOrder(seatService, eventRepository);
+        inOrder.verify(seatService).deleteSeatsOfEvents(List.of(1L, 2L));
+        inOrder.verify(eventRepository).deleteAllByIdInBatch(List.of(1L, 2L));
+    }
+
+    // 지울 회차가 없으면 삭제를 시도하지 않아야 한다
+    @Test
+    @DisplayName("지울 회차가 없으면 아무것도 삭제하지 않는다")
+    void deleteRunsOpenedBefore_nothingToDelete() {
+        // given
+        LocalDateTime cutoff = LocalDateTime.now().minusDays(1);
+        when(eventRepository.findIdsOpenedBefore(eq(cutoff), any(Pageable.class))).thenReturn(List.of());
+
+        // when
+        int deleted = eventService.deleteRunsOpenedBefore(cutoff, 100);
+
+        // then
+        assertThat(deleted).isZero();
+        verify(seatService, never()).deleteSeatsOfEvents(anyList());
+        verify(eventRepository, never()).deleteAllByIdInBatch(anyList());
     }
 }

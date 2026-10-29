@@ -12,7 +12,7 @@
 - `POST /api/v1/concerts/{concertId}/runs` — 템플릿의 이름과 좌석 수로 새 Event를 만들고(오픈 시각 = 지금) 좌석을 초기화한다. 고를 때마다 빈 좌석에서 시작하는 회차가 생긴다.
 - 좌석 수는 50~500석으로, `EventCreateRequest.MAX_SEAT_COUNT`(500) 안에 있다.
 - 가격은 화면 표시용이며 Mock 결제 금액 검증에는 쓰지 않는다.
-- 미구현: 지난 회차 정리(회차와 좌석 행이 계속 쌓인다)
+- 지난 회차는 event 도메인의 `EventRunCleanupScheduler`가 정리한다(오픈 후 24시간 경과).
 
 ## 관련 이벤트 (Kafka 토픽)
 
