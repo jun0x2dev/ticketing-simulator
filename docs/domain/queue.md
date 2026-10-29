@@ -11,12 +11,13 @@ DB entity 없이 producer/consumer, 서비스, Redis 토큰 관리자로 구성�
 - `EntryRequestConsumer`가 `queue.worker.tps`(기본 100)에 맞춰 토픽을 소비한다. 처리 후 `1000/tps`ms 대기하므로 못 처리한 요청은 Kafka에 쌓인다.
 - `EntryService.grantEntry`: 입장 토큰을 발급하고 `entry.granted`를 발행한다. 토큰 값은 이벤트에 싣지 않는다.
 - `POST /api/v1/events/{eventId}/entries/direct` — 대기열을 거치지 않고 즉시 토큰 발급. 부하 비교의 "대기열 적용 전" 기준선 전용이다.
-- `GET /api/v1/entries/{requestId}` — `WAITING`(토큰 없음, 존재하지 않는 requestId 포함) 또는 `GRANTED`(+토큰).
+- `GET /api/v1/events/{eventId}/entries/{requestId}` — `WAITING`(대기 순번 `position`, 내 뒤 인원 `behind`, 예상 대기 시간 `estimatedSeconds` 포함) 또는 `GRANTED`(+토큰). 순번이 없는 `WAITING`은 줄에서 막 빠져 입장 처리 중이거나 모르는 요청이다.
+- 대기 순번: 입장 요청 시 Kafka 발행 **전에** Redis Sorted Set `queue:line:{eventId}`(score = `queue:seq:{eventId}` INCR 순번)에 줄을 세우고, Queue Worker가 입장을 허용하면 줄에서 뺀다. 순번은 `ZRANK + 1`, 뒤 인원은 `ZCARD - 순번`, 예상 대기 시간은 `ceil(순번 / queue.worker.tps)`. 줄 키는 마지막 접수 후 1시간 뒤 만료된다.
 - 토큰은 Redis 키 두 개로 관리한다. `entry:grant:{requestId}` → 토큰(요청당 1회 발급 = 멱등성 키), `entry:token:{token}` → eventId(선점 시 검증용). 둘 다 TTL `queue.token-ttl-seconds`(기본 600초).
 - 좌석 선점(`seat` 도메인)은 `X-Entry-Token` 헤더의 토큰이 유효하고 좌석의 이벤트와 같아야 한다.
 - 실패 처리: Consumer가 실패하면 1초 간격 3회 재시도 후 `entry.requested.DLT`로 이동한다(`KafkaConsumerConfig`).
 - `EntryGrantedRelayConsumer`가 `entry.granted`를 구독해 `/topic/entries/{requestId}`로 WebSocket 알림을 보낸다(토큰 미포함). 클라이언트는 알림을 받으면 `GET /api/v1/entries/{requestId}`로 토큰을 가져간다. 인스턴스별 고유 그룹 + 최신 오프셋으로 구독한다.
-- 미구현: WebSocket 대기 순번 브로드캐스트, DLT 소비/재처리, 입장 요청의 이벤트 오픈 시각 검증
+- 미구현: DLT 소비/재처리(DLT로 빠진 요청은 줄 만료 전까지 순번에 남는다), 입장 요청의 이벤트 오픈 시각 검증
 
 ## 관련 이벤트 (Kafka 토픽)
 

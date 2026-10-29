@@ -32,7 +32,7 @@ export default function (data) {
   const requestId = accepted.json('data.requestId');
   const start = Date.now();
   while (Date.now() - start < 9 * 60 * 1000) {
-    const status = http.get(`${BASE_URL}/api/v1/entries/${requestId}`, { tags: { name: 'poll' } });
+    const status = http.get(`${BASE_URL}/api/v1/events/${data.eventId}/entries/${requestId}`, { tags: { name: 'poll' } });
     if (status.json('data.status') === 'GRANTED') {
       waitTime.add(Date.now() - start);
       holdRandomSeat(data, status.json('data.token'));
