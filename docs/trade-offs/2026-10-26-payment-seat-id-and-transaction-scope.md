@@ -8,7 +8,8 @@
 ## 선택
 
 - `POST /api/v1/payments`는 `seatId`를 받는다 (DESIGN.md 초안의 `seatHoldId`에서 변경).
-- `pay()`는 `Propagation.NOT_SUPPORTED`로 트랜잭션 없이 실행하고, 좌석 확정/해제와 결제 기록 저장이 각각 자체 트랜잭션을 가진다.
+- `pay()`는 `Propagation.NOT_SUPPORTED`로 트랜잭션 없이 실행하고, 게이트웨이 호출 뒤의 좌석 확정/해제와 결제 기록 저장만 `TransactionTemplate`으로 한 트랜잭션에 묶는다.
+- (2026-10-29 변경) 처음에는 좌석 확정/해제와 결제 기록 저장이 각각 자체 트랜잭션이었다. 기록 저장이 실패하면 기록 없이 확정된 좌석이 남고 `seat.confirmed`도 나가지 않아, 둘을 한 트랜잭션으로 묶었다. [트러블슈팅](../troubleshooting/2026-10-29-payment-deadline-and-partial-commit.md)
 
 ## 이유
 

@@ -13,6 +13,7 @@ public enum ErrorCode {
     SEAT_ALREADY_HELD(HttpStatus.CONFLICT, "이미 선점된 좌석입니다."),
     SEAT_NOT_FOUND(HttpStatus.NOT_FOUND, "좌석을 찾을 수 없습니다."),
     SEAT_NOT_HELD(HttpStatus.CONFLICT, "선점 상태가 아닌 좌석입니다."),
+    SEAT_HOLD_EXPIRED(HttpStatus.CONFLICT, "결제 제한시간이 지나 좌석 선점이 만료되었습니다."),
     SEAT_HOLDER_MISMATCH(HttpStatus.FORBIDDEN, "이 좌석을 선점한 사용자가 아닙니다."),
     SEAT_HOLD_LIMIT_EXCEEDED(HttpStatus.CONFLICT, "이미 선점 중인 좌석이 있습니다. 한 번에 1석만 선점할 수 있습니다."),
     ENTRY_TOKEN_INVALID(HttpStatus.FORBIDDEN, "유효하지 않거나 만료된 입장 토큰입니다."),

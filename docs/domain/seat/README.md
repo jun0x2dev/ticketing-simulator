@@ -11,6 +11,7 @@
 - `GET /api/v1/events/{eventId}/seats` — 좌석 목록 조회
 - `POST /api/v1/seats/{seatId}/hold` — `X-Entry-Token` 헤더 필수(없음/만료/타 이벤트 토큰이면 `ENTRY_TOKEN_INVALID`). Redis `SET NX PX`(TTL 5분)로 락 획득 성공한 단 1건만 DB를 `HELD`로 변경. 실패 시 `SEAT_ALREADY_HELD`
 - 선점자: 선점 시 입장 토큰을 `heldBy`에 기록한다. 결제/해제는 같은 토큰으로만 가능하고, 다르면 `SEAT_HOLDER_MISMATCH`(403)
+- 제한시간: 결제/해제 시 `heldAt + 5분`이 지났으면 `SEAT_HOLD_EXPIRED`(409)로 거절한다. TTL 스케줄러의 실행 간격과 관계없이 5분이 정확한 마감이 된다
 - 토큰당 1석: 좌석 락보다 먼저 `seat:holder:{token}`(값 seatId, TTL 5분)을 `SET NX`로 건다. 이미 있으면 `SEAT_HOLD_LIMIT_EXCEEDED`(409). 좌석 락 실패·DB 반영 실패·확정·해제 시 지우고, TTL 만료 시에는 좌석 락과 함께 스스로 사라진다
 - `POST /api/v1/seats/{seatId}/release` — `X-Entry-Token` 헤더 필수. 선점자 본인만 `HELD`를 `AVAILABLE`로 되돌리고 좌석 락과 토큰 표시를 지운다 (결제 화면의 "좌석 다시 선택")
 - 락 해제는 UUID 토큰이 일치할 때만 수행(TTL 만료 후 타 요청이 얻은 락 보호)
