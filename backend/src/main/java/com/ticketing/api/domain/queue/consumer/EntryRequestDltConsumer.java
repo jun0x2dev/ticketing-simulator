@@ -36,6 +36,11 @@ public class EntryRequestDltConsumer {
      */
     @KafkaListener(topics = KafkaTopicConfig.ENTRY_REQUESTED_DLT, groupId = "${spring.kafka.consumer.group-id}-dlt")
     public void consume(ConsumerRecord<String, EntryRequestedEvent> record) {
+        // 값이 없는 메시지(tombstone)는 처리할 요청이 없으므로 건너뛴다. 아래 로그에서 requestId를 꺼내다 실패하지 않게 먼저 거른다.
+        if (record.value() == null) {
+            log.error("DLT 입장 요청 값 없음, 건너뜀 - partition: {}, offset: {}", record.partition(), record.offset());
+            return;
+        }
         long waitMillis = record.timestamp() + redriveDelayMillis - System.currentTimeMillis();
         try {
             if (waitMillis > 0) {

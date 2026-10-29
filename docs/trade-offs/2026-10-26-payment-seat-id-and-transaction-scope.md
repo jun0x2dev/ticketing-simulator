@@ -15,4 +15,4 @@
 
 - 선점은 `Seat.status = HELD` + Redis 락으로 이미 표현되고 좌석당 동시에 하나만 존재한다. 별도 hold 엔티티를 만들면 같은 정보를 이중 관리하게 되고 MVP 목표(동시성/이벤트)와 무관한 복잡도만 늘어난다.
 - Mock 게이트웨이의 지연(최대 1.5초) 동안 DB 커넥션을 잡고 있으면 오픈 직후 트래픽에서 커넥션 풀이 고갈된다.
-- 감수한 점: 결제 승인 후 `confirmSeat` 전에 TTL 스케줄러가 좌석을 해제하면 결제는 승인됐으나 확정은 실패한다(실제 PG라면 환불 필요, Mock이라 생략). 또 DB 커밋 후 Kafka 발행이 실패하면 이벤트가 유실될 수 있었다. (2026-10-29) 이 부분은 [Transactional Outbox](./2026-10-29-transactional-outbox.md)로 해결했다.
+- 감수한 점: 결제 승인 후 `confirmSeat` 전에 TTL 스케줄러가 좌석을 해제하면 결제는 승인됐으나 확정은 실패한다. (2026-10-29) 이 경우 게이트웨이에 승인 취소를 요청하고 `CANCELLED`로 기록하도록 바꿨다([트러블슈팅](../troubleshooting/2026-10-29-duplicate-payment-approval.md)). 또 DB 커밋 후 Kafka 발행이 실패하면 이벤트가 유실될 수 있었다. (2026-10-29) 이 부분은 [Transactional Outbox](./2026-10-29-transactional-outbox.md)로 해결했다.

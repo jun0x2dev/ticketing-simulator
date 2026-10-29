@@ -1,7 +1,7 @@
 package com.ticketing.api.domain.seat.lock;
 
+import com.ticketing.api.global.lock.RedisLock;
 import java.time.Duration;
-import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -10,7 +10,7 @@ import org.springframework.stereotype.Component;
 
 /**
  * 좌석 단위 Redis 분산 락을 관리한다. 같은 좌석에 대한 동시 선점 요청을
- * {@code SET key value NX PX ttl} 1회 명령(원자적)으로 막는다.
+ * {@code SET key value NX PX ttl} 1회 명령(원자적)으로 막는다({@link RedisLock}).
  * 락 값에 UUID를 넣어서, 락을 획득한 요청만 자신의 락을 해제할 수 있도록 한다
  * (다른 요청이 TTL 만료 후 새로 획득한 락을 실수로 해제하는 것을 방지).
  */
@@ -23,6 +23,7 @@ public class SeatLockManager {
     private static final String HOLDER_KEY_PREFIX = "seat:holder:";
 
     private final StringRedisTemplate redisTemplate;
+    private final RedisLock redisLock;
 
     /**
      * 좌석 락 획득을 시도한다.
@@ -32,13 +33,7 @@ public class SeatLockManager {
      * @return 락 획득에 성공하면 해제 시 필요한 토큰, 실패하면 null
      */
     public String tryLock(Long seatId, Duration ttl) {
-        String key = lockKey(seatId);
-        String token = UUID.randomUUID().toString();
-        Boolean acquired = redisTemplate.opsForValue().setIfAbsent(key, token, ttl);
-        if (Boolean.TRUE.equals(acquired)) {
-            return token;
-        }
-        return null;
+        return redisLock.tryLock(lockKey(seatId), ttl);
     }
 
     /**
@@ -49,11 +44,7 @@ public class SeatLockManager {
      * @param token  락 획득 시 받은 토큰
      */
     public void unlock(Long seatId, String token) {
-        String key = lockKey(seatId);
-        String currentValue = redisTemplate.opsForValue().get(key);
-        if (token.equals(currentValue)) {
-            redisTemplate.delete(key);
-        } else {
+        if (!redisLock.unlock(lockKey(seatId), token)) {
             log.warn("좌석 락 해제 스킵 - 토큰 불일치 또는 이미 만료됨. seatId: {}", seatId);
         }
     }

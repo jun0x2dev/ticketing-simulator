@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -16,6 +17,7 @@ import com.ticketing.api.domain.queue.token.EntryTokenManager;
 import com.ticketing.api.domain.payment.dto.PaymentResponse;
 import com.ticketing.api.domain.payment.entity.Payment;
 import com.ticketing.api.domain.payment.entity.PaymentStatus;
+import com.ticketing.api.domain.payment.gateway.ChargeResult;
 import com.ticketing.api.domain.payment.gateway.MockPaymentGateway;
 import com.ticketing.api.domain.payment.repository.PaymentRepository;
 import com.ticketing.api.domain.payment.service.PaymentService;
@@ -125,7 +127,7 @@ class PaymentFlowIntegrationTest {
     @DisplayName("결제 승인 시 좌석이 CONFIRMED가 되고 seat.confirmed가 outbox에 기록된다")
     void pay_approved_seatConfirmed() {
         // given
-        when(paymentGateway.charge()).thenReturn(true);
+        when(paymentGateway.charge()).thenReturn(ChargeResult.approved("approval-1"));
 
         // when
         PaymentResponse response = paymentService.pay(seatId, entryToken);
@@ -148,7 +150,7 @@ class PaymentFlowIntegrationTest {
     @DisplayName("결제 거절 시 좌석이 AVAILABLE로 돌아가 재선점할 수 있다")
     void pay_declined_seatReleasedAndHoldableAgain() {
         // given
-        when(paymentGateway.charge()).thenReturn(false);
+        when(paymentGateway.charge()).thenReturn(ChargeResult.declined());
 
         // when
         PaymentResponse response = paymentService.pay(seatId, entryToken);
@@ -168,7 +170,7 @@ class PaymentFlowIntegrationTest {
     @DisplayName("이미 확정된 좌석을 다시 결제하면 예외가 발생한다")
     void pay_alreadyConfirmed_throws() {
         // given
-        when(paymentGateway.charge()).thenReturn(true);
+        when(paymentGateway.charge()).thenReturn(ChargeResult.approved("approval-1"));
         paymentService.pay(seatId, entryToken);
 
         // when & then
@@ -192,12 +194,16 @@ class PaymentFlowIntegrationTest {
         assertThat(seatRepository.findById(seatId).orElseThrow().getStatus()).isEqualTo(SeatStatus.HELD);
     }
 
-    // 같은 좌석에 결제 요청이 동시에 몰려도 확정과 결제 기록은 정확히 1건이어야 한다
+    // 같은 좌석에 결제 요청이 동시에 몰려도 게이트웨이 승인 요청, 확정, 결제 기록은 정확히 1건이어야 한다
     @Test
-    @DisplayName("같은 좌석에 동시에 결제해도 1건만 확정된다")
+    @DisplayName("같은 좌석에 동시에 결제해도 게이트웨이 승인은 1번만 요청되고 1건만 확정된다")
     void pay_concurrentRequests_confirmedOnlyOnce() throws InterruptedException {
         // given
-        when(paymentGateway.charge()).thenReturn(true);
+        // 실제 게이트웨이처럼 응답에 시간이 걸려야 요청들이 결제 단계에서 겹친다
+        when(paymentGateway.charge()).thenAnswer(invocation -> {
+            Thread.sleep(200);
+            return ChargeResult.approved("approval-1");
+        });
         int requestCount = 10;
         ExecutorService executorService = Executors.newFixedThreadPool(requestCount);
         CountDownLatch startLatch = new CountDownLatch(1);
@@ -227,6 +233,8 @@ class PaymentFlowIntegrationTest {
         assertThat(seatRepository.findById(seatId).orElseThrow().getStatus()).isEqualTo(SeatStatus.CONFIRMED);
         assertThat(outboxEventRepository.findAll()).singleElement()
                 .extracting(OutboxEvent::getTopic).isEqualTo(KafkaTopicConfig.SEAT_CONFIRMED);
+        verify(paymentGateway, times(1)).charge();
+        verify(paymentGateway, never()).cancel(any());
     }
 
     // 결제 제한시간이 지난 선점은 TTL 스케줄러가 풀기 전이라도 결제를 시도하지 않고 거절해야 한다
@@ -250,12 +258,40 @@ class PaymentFlowIntegrationTest {
     @DisplayName("결제 기록 저장이 실패하면 좌석 확정과 outbox 기록도 롤백되어 HELD로 남는다")
     void pay_paymentSaveFails_rollsBackConfirm() {
         // given
-        when(paymentGateway.charge()).thenReturn(true);
+        when(paymentGateway.charge()).thenReturn(ChargeResult.approved("approval-1"));
         doThrow(new IllegalStateException("결제 기록 저장 실패")).when(paymentRepository).save(any(Payment.class));
 
         // when & then
         assertThatThrownBy(() -> paymentService.pay(seatId, entryToken))
                 .isInstanceOf(IllegalStateException.class);
+        assertThat(seatRepository.findById(seatId).orElseThrow().getStatus()).isEqualTo(SeatStatus.HELD);
+        assertThat(outboxEventRepository.count()).isZero();
+        // 확정이 롤백되었으므로 승인된 결제는 취소되어야 한다
+        verify(paymentGateway).cancel("approval-1");
+    }
+
+    // 결제 승인을 기다리는 사이 제한시간이 지나 확정에 실패하면, 승인을 취소하고 CANCELLED로 남겨야 한다
+    @Test
+    @DisplayName("결제 중 선점이 만료되어 확정에 실패하면 승인을 취소하고 CANCELLED로 기록한다")
+    void pay_holdExpiresDuringCharge_cancelsApproval() {
+        // given
+        when(paymentGateway.charge()).thenAnswer(invocation -> {
+            // 게이트웨이 응답을 기다리는 동안 제한시간이 지난 상황을 만든다
+            jdbcTemplate.update("update seats set held_at = ? where id = ?",
+                    LocalDateTime.now().minus(Seat.HOLD_TTL).minusSeconds(1), seatId);
+            return ChargeResult.approved("approval-late");
+        });
+
+        // when & then
+        assertThatThrownBy(() -> paymentService.pay(seatId, entryToken))
+                .isInstanceOf(CustomException.class)
+                .extracting(e -> ((CustomException) e).getErrorCode())
+                .isEqualTo(ErrorCode.SEAT_HOLD_EXPIRED);
+        verify(paymentGateway).cancel("approval-late");
+        assertThat(paymentRepository.findAll()).singleElement().satisfies(payment -> {
+            assertThat(payment.getStatus()).isEqualTo(PaymentStatus.CANCELLED);
+            assertThat(payment.getApprovalId()).isEqualTo("approval-late");
+        });
         assertThat(seatRepository.findById(seatId).orElseThrow().getStatus()).isEqualTo(SeatStatus.HELD);
         assertThat(outboxEventRepository.count()).isZero();
     }

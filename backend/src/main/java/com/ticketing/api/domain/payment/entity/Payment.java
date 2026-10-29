@@ -34,23 +34,29 @@ public class Payment {
     @Column(nullable = false, length = 20)
     private PaymentStatus status;
 
+    // 게이트웨이 승인 번호. 승인된 결제(SUCCESS, CANCELLED)만 값이 있고, 취소/대사(정산 대조)에 쓴다.
+    @Column(name = "approval_id", length = 64)
+    private String approvalId;
+
     @Column(name = "created_at", nullable = false)
     private LocalDateTime createdAt;
 
-    private Payment(Long seatId, PaymentStatus status) {
+    private Payment(Long seatId, PaymentStatus status, String approvalId) {
         this.seatId = seatId;
         this.status = status;
+        this.approvalId = approvalId;
         this.createdAt = LocalDateTime.now();
     }
 
     /**
      * 결제 결과를 기록하는 정적 팩토리 메서드.
      *
-     * @param seatId 결제 대상 좌석 ID
-     * @param status 결제 결과
+     * @param seatId     결제 대상 좌석 ID
+     * @param status     결제 결과
+     * @param approvalId 게이트웨이 승인 번호 (거절이면 null)
      * @return 생성된 Payment
      */
-    public static Payment create(Long seatId, PaymentStatus status) {
-        return new Payment(seatId, status);
+    public static Payment create(Long seatId, PaymentStatus status, String approvalId) {
+        return new Payment(seatId, status, approvalId);
     }
 }
