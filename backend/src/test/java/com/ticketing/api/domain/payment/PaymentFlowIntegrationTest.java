@@ -3,6 +3,7 @@ package com.ticketing.api.domain.payment;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -14,6 +15,7 @@ import com.ticketing.api.domain.queue.token.EntryTokenManager;
 import com.ticketing.api.domain.payment.dto.PaymentResponse;
 import com.ticketing.api.domain.payment.dto.SeatConfirmedEvent;
 import com.ticketing.api.domain.payment.dto.SeatReleasedEvent;
+import com.ticketing.api.domain.payment.entity.Payment;
 import com.ticketing.api.domain.payment.entity.PaymentStatus;
 import com.ticketing.api.domain.payment.gateway.MockPaymentGateway;
 import com.ticketing.api.domain.payment.producer.SeatEventProducer;
@@ -40,6 +42,8 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -75,8 +79,12 @@ class PaymentFlowIntegrationTest {
     @Autowired
     private SeatService seatService;
 
-    @Autowired
+    // 결제 기록 저장 실패를 재현하기 위해 실제 Repository를 감싼 Spy로 둔다
+    @MockitoSpyBean
     private PaymentRepository paymentRepository;
+
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
 
     @Autowired
     private SeatRepository seatRepository;
@@ -203,6 +211,37 @@ class PaymentFlowIntegrationTest {
         assertThat(paymentRepository.count()).isEqualTo(1);
         assertThat(seatRepository.findById(seatId).orElseThrow().getStatus()).isEqualTo(SeatStatus.CONFIRMED);
         verify(seatEventProducer, times(1)).sendConfirmed(any(SeatConfirmedEvent.class));
+    }
+
+    // 결제 제한시간이 지난 선점은 TTL 스케줄러가 풀기 전이라도 결제를 시도하지 않고 거절해야 한다
+    @Test
+    @DisplayName("제한시간이 지난 선점은 스케줄러 복구 전이라도 SEAT_HOLD_EXPIRED로 거절된다")
+    void pay_afterHoldTtl_throwsBeforeSchedulerRelease() {
+        // given
+        jdbcTemplate.update("update seats set held_at = ? where id = ?",
+                LocalDateTime.now().minus(Seat.HOLD_TTL).minusSeconds(1), seatId);
+
+        // when & then
+        assertThatThrownBy(() -> paymentService.pay(seatId, entryToken))
+                .isInstanceOf(CustomException.class)
+                .extracting(e -> ((CustomException) e).getErrorCode())
+                .isEqualTo(ErrorCode.SEAT_HOLD_EXPIRED);
+        verify(paymentGateway, never()).charge();
+    }
+
+    // 결제 기록 저장이 실패하면 좌석 확정도 함께 롤백되어, 기록 없이 확정된 좌석이 남지 않아야 한다
+    @Test
+    @DisplayName("결제 기록 저장이 실패하면 좌석 확정도 롤백되어 HELD로 남는다")
+    void pay_paymentSaveFails_rollsBackConfirm() {
+        // given
+        when(paymentGateway.charge()).thenReturn(true);
+        doThrow(new IllegalStateException("결제 기록 저장 실패")).when(paymentRepository).save(any(Payment.class));
+
+        // when & then
+        assertThatThrownBy(() -> paymentService.pay(seatId, entryToken))
+                .isInstanceOf(IllegalStateException.class);
+        assertThat(seatRepository.findById(seatId).orElseThrow().getStatus()).isEqualTo(SeatStatus.HELD);
+        verify(seatEventProducer, never()).sendConfirmed(any(SeatConfirmedEvent.class));
     }
 
     // 결제 도중 TTL이 지나 다른 사람이 다시 잡은 좌석을 원래 선점자가 확정해서는 안 된다

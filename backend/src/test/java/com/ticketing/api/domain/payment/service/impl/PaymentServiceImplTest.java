@@ -26,6 +26,8 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.transaction.support.TransactionCallback;
+import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * PaymentServiceImpl 단위 테스트. 게이트웨이/Kafka/Repository는 Mock으로 대체한다.
@@ -49,6 +51,9 @@ class PaymentServiceImplTest {
     @Mock
     private SeatEventProducer seatEventProducer;
 
+    @Mock
+    private TransactionTemplate transactionTemplate;
+
     @InjectMocks
     private PaymentServiceImpl paymentService;
 
@@ -59,6 +64,7 @@ class PaymentServiceImplTest {
         // given
         when(seatService.getHeldSeat(SEAT_ID, TOKEN)).thenReturn(seat(SeatStatus.HELD));
         when(paymentGateway.charge()).thenReturn(true);
+        runCallbacksDirectly();
         when(paymentRepository.save(any(Payment.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
         // when
@@ -78,6 +84,7 @@ class PaymentServiceImplTest {
         // given
         when(seatService.getHeldSeat(SEAT_ID, TOKEN)).thenReturn(seat(SeatStatus.HELD));
         when(paymentGateway.charge()).thenReturn(false);
+        runCallbacksDirectly();
         when(paymentRepository.save(any(Payment.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
         // when
@@ -119,6 +126,12 @@ class PaymentServiceImplTest {
                 .extracting(e -> ((CustomException) e).getErrorCode())
                 .isEqualTo(ErrorCode.SEAT_HOLDER_MISMATCH);
         verify(paymentGateway, never()).charge();
+    }
+
+    // 트랜잭션 없이 콜백만 바로 실행해서, 트랜잭션 안에서 호출되는 협력 객체를 검증할 수 있게 한다
+    private void runCallbacksDirectly() {
+        when(transactionTemplate.execute(any())).thenAnswer(invocation ->
+                invocation.<TransactionCallback<?>>getArgument(0).doInTransaction(null));
     }
 
     private SeatResponse seat(SeatStatus status) {
