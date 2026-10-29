@@ -9,22 +9,23 @@ export function SeatSummary({ seats }: { seats: Seat[] }) {
   return (
     <div className="summary">
       <dl className="summary-stats">
-        <div>
+        <div className="stat stat-available">
           <dt>선택 가능</dt>
           <dd>{count('AVAILABLE')}</dd>
         </div>
-        <div>
-          <dt>선점됨</dt>
+        <div className="stat stat-held">
+          <dt>결제 대기</dt>
           <dd>{count('HELD')}</dd>
         </div>
-        <div>
+        <div className="stat stat-confirmed">
           <dt>판매 완료</dt>
           <dd>{confirmed}</dd>
         </div>
       </dl>
-      <div className="progress" role="progressbar" aria-valuenow={ratio} aria-valuemin={0} aria-valuemax={100}>
+      <div className="progress" role="progressbar" aria-label="판매율" aria-valuenow={ratio} aria-valuemin={0} aria-valuemax={100}>
         <span style={{ width: `${ratio}%` }} />
       </div>
+      <p className="progress-label">{seats.length}석 중 {ratio}% 판매</p>
     </div>
   )
 }

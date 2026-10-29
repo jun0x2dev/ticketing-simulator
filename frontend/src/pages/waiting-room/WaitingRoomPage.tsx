@@ -50,15 +50,21 @@ export function WaitingRoomPage({ event, onGranted }: Props) {
   }, [])
 
   return (
-    <section className="card center">
-      <h2>{event.name} 대기열</h2>
+    <section className="page page-waiting">
+      <p className="event-name">{event.name}</p>
       {error ? (
-        <p className="error">{error}</p>
+        <p className="error" role="alert">
+          {error}
+        </p>
       ) : (
         <>
-          <div className="spinner" aria-hidden="true" />
-          <p className="lead">입장 순서를 기다리는 중입니다</p>
-          <p className="muted">대기 시간 {elapsed}초 · 차례가 되면 자동으로 좌석 선택 화면으로 이동합니다.</p>
+          <h1 className="title">입장 순서를 기다리고 있어요</h1>
+          <div className="queue-board">
+            <span className="queue-light" aria-hidden="true" />
+            <span className="queue-elapsed">{elapsed}</span>
+            <span className="queue-unit">초째 대기 중</span>
+          </div>
+          <p className="lead">차례가 되면 좌석 선택 화면으로 자동으로 넘어갑니다. 이 창을 닫지 마세요.</p>
         </>
       )}
     </section>

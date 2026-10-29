@@ -11,7 +11,7 @@ interface Props {
 
 const STATUS_LABEL: Record<Seat['status'], string> = {
   AVAILABLE: '선택 가능',
-  HELD: '선점됨',
+  HELD: '결제 대기',
   CONFIRMED: '판매 완료',
 }
 
@@ -34,32 +34,40 @@ export function SeatSelectionPage({ event, token, onHeld }: Props) {
   }
 
   return (
-    <section className="card">
-      <h2>{event.name} 좌석 선택</h2>
+    <section className="page page-seats">
+      <p className="event-name">{event.name}</p>
+      <h1 className="title">좌석을 고르세요</h1>
       <SeatSummary seats={seats} />
-      {(error ?? message) && <p className="error">{error ?? message}</p>}
-      <div className="seat-grid">
-        {seats.map((seat) => (
-          <button
-            key={seat.id}
-            type="button"
-            className={`seat seat-${seat.status.toLowerCase()}`}
-            disabled={seat.status !== 'AVAILABLE' || pendingSeatId !== null}
-            title={`${seat.seatNumber}번 · ${STATUS_LABEL[seat.status]}`}
-            onClick={() => void hold(seat)}
-          >
-            {seat.seatNumber}
-          </button>
-        ))}
+      {(error ?? message) && (
+        <p className="error" role="alert">
+          {error ?? message}
+        </p>
+      )}
+      <div className="hall">
+        <div className="stage-bar">무대</div>
+        <div className="seat-grid">
+          {seats.map((seat) => (
+            <button
+              key={seat.id}
+              type="button"
+              className={`seat seat-${seat.status.toLowerCase()}`}
+              disabled={seat.status !== 'AVAILABLE' || pendingSeatId !== null}
+              aria-label={`${seat.seatNumber}번 좌석, ${STATUS_LABEL[seat.status]}`}
+              onClick={() => void hold(seat)}
+            >
+              {seat.seatNumber}
+            </button>
+          ))}
+        </div>
+        <ul className="legend">
+          {Object.entries(STATUS_LABEL).map(([status, label]) => (
+            <li key={status}>
+              <span className={`swatch seat-${status.toLowerCase()}`} />
+              {label}
+            </li>
+          ))}
+        </ul>
       </div>
-      <ul className="legend">
-        {Object.entries(STATUS_LABEL).map(([status, label]) => (
-          <li key={status}>
-            <span className={`swatch seat-${status.toLowerCase()}`} />
-            {label}
-          </li>
-        ))}
-      </ul>
     </section>
   )
 }
