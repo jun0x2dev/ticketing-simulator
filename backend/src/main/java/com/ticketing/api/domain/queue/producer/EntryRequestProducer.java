@@ -2,6 +2,7 @@ package com.ticketing.api.domain.queue.producer;
 
 import com.ticketing.api.domain.queue.dto.EntryRequestedEvent;
 import com.ticketing.api.global.config.KafkaTopicConfig;
+import java.util.concurrent.CompletableFuture;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -22,17 +23,17 @@ public class EntryRequestProducer {
     private final KafkaTemplate<String, EntryRequestedEvent> kafkaTemplate;
 
     /**
-     * 입장 요청 이벤트를 발행한다.
+     * 입장 요청 이벤트를 발행한다. 접수 응답을 늦추지 않도록 브로커 응답을 기다리지 않고,
+     * 결과는 반환한 future로 알린다. 실패 처리(줄에서 빼고 실패 표시)는 호출한 쪽이 맡는다.
      *
      * @param event 발행할 입장 요청 이벤트
+     * @return 브로커가 수신을 확인하면 정상 완료되고, 발행에 실패하면 예외로 완료되는 future
      */
-    public void send(EntryRequestedEvent event) {
+    public CompletableFuture<?> send(EntryRequestedEvent event) {
         String key = String.valueOf(event.eventId());
-        kafkaTemplate.send(KafkaTopicConfig.ENTRY_REQUESTED, key, event)
+        return kafkaTemplate.send(KafkaTopicConfig.ENTRY_REQUESTED, key, event)
                 .whenComplete((result, ex) -> {
-                    if (ex != null) {
-                        log.error("입장 요청 이벤트 발행 실패 - requestId: {}", event.requestId(), ex);
-                    } else {
+                    if (ex == null) {
                         log.info("입장 요청 이벤트 발행 완료 - requestId: {}, eventId: {}", event.requestId(), event.eventId());
                     }
                 });

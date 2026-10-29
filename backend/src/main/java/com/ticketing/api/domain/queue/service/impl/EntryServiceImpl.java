@@ -12,6 +12,7 @@ import com.ticketing.api.domain.queue.token.EntryTokenManager;
 import com.ticketing.api.domain.queue.waiting.WaitingLineManager;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -57,7 +58,7 @@ public class EntryServiceImpl implements EntryService {
         EntryRequestedEvent event = EntryRequestedEvent.of(eventId);
         // Kafka 발행보다 먼저 줄에 세워야, Consumer가 먼저 처리해 버려 줄에 영원히 남는 요청이 생기지 않는다.
         waitingLineManager.join(eventId, event.requestId());
-        entryRequestProducer.send(event);
+        publish(event);
         return new EntryRequestResponse(event.requestId());
     }
 
@@ -78,14 +79,35 @@ public class EntryServiceImpl implements EntryService {
     @Override
     public void handleDeadLetter(EntryRequestedEvent event) {
         if (event.redriveCount() < MAX_REDRIVE) {
-            entryRequestProducer.send(event.redriven());
+            publish(event.redriven());
             log.warn("DLT 입장 요청 재투입 - requestId: {}, redriveCount: {}", event.requestId(), event.redriveCount() + 1);
             return;
         }
-        // 재투입까지 실패한 요청은 줄에서 빼고 실패로 표시해, 클라이언트가 순번이 멈춘 채 기다리지 않게 한다.
+        failRequest(event, null);
+    }
+
+    // 접수 응답을 늦추지 않도록 발행 결과를 기다리지 않는다. 대신 발행이 실패하면 줄에서 빼고 실패로 표시해,
+    // 줄에는 있지만 Kafka에는 없는 요청이 순번이 멈춘 채 남지 않게 한다 (대기 화면은 FAILED를 받아 다시 줄 서기를 안내).
+    private void publish(EntryRequestedEvent event) {
+        CompletableFuture<?> result;
+        try {
+            result = entryRequestProducer.send(event);
+        } catch (RuntimeException e) {
+            result = CompletableFuture.failedFuture(e);
+        }
+        result.whenComplete((ignored, ex) -> {
+            if (ex != null) {
+                failRequest(event, ex);
+            }
+        });
+    }
+
+    // 더 처리할 수 없는 요청을 줄에서 빼고 실패로 표시해, 클라이언트가 순번이 멈춘 채 기다리지 않게 한다.
+    private void failRequest(EntryRequestedEvent event, Throwable cause) {
         waitingLineManager.leave(event.eventId(), event.requestId());
         entryTokenManager.markFailed(event.requestId());
-        log.error("입장 요청 최종 실패 - requestId: {}, eventId: {}", event.requestId(), event.eventId());
+        log.error("입장 요청 최종 실패 - requestId: {}, eventId: {}, redriveCount: {}",
+                event.requestId(), event.eventId(), event.redriveCount(), cause);
     }
 
     @Override

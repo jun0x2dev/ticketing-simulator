@@ -11,6 +11,7 @@ public interface EntryService {
 
     /**
      * 입장 요청을 접수해서 대기 순번을 매기고 대기열(entry.requested)에 적재한다.
+     * 발행 결과를 기다리지 않고 응답하며, 발행이 실패하면 줄에서 빼고 최종 실패(FAILED)로 표시한다.
      *
      * @param eventId 입장할 이벤트 ID (없으면 EVENT_NOT_FOUND 예외)
      * @return 접수된 요청 ID
@@ -27,7 +28,7 @@ public interface EntryService {
 
     /**
      * 재시도 끝에 DLT로 빠진 입장 요청을 처리한다. 재투입 횟수가 남아 있으면 원래 토픽으로 다시 보내고,
-     * 남아 있지 않으면 대기 줄에서 빼고 최종 실패로 표시한다.
+     * 남아 있지 않거나 재투입 발행이 실패하면 대기 줄에서 빼고 최종 실패로 표시한다.
      *
      * @param event DLT에서 꺼낸 입장 요청 이벤트
      */

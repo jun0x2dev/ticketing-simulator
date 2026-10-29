@@ -1,6 +1,8 @@
 package com.ticketing.api.domain.seat.service.impl;
 
 import com.ticketing.api.domain.event.entity.Event;
+import com.ticketing.api.domain.outbox.service.OutboxService;
+import com.ticketing.api.domain.payment.dto.SeatReleasedEvent;
 import com.ticketing.api.domain.queue.token.EntryTokenManager;
 import com.ticketing.api.domain.seat.dto.SeatResponse;
 import com.ticketing.api.domain.seat.dto.SeatStatusChangedEvent;
@@ -8,6 +10,7 @@ import com.ticketing.api.domain.seat.entity.Seat;
 import com.ticketing.api.domain.seat.lock.SeatLockManager;
 import com.ticketing.api.domain.seat.repository.SeatRepository;
 import com.ticketing.api.domain.seat.service.SeatService;
+import com.ticketing.api.global.config.KafkaTopicConfig;
 import com.ticketing.api.global.exception.CustomException;
 import com.ticketing.api.global.exception.ErrorCode;
 import java.time.LocalDateTime;
@@ -35,6 +38,7 @@ public class SeatServiceImpl implements SeatService {
     private final SeatLockManager seatLockManager;
     private final EntryTokenManager entryTokenManager;
     private final ApplicationEventPublisher eventPublisher;
+    private final OutboxService outboxService;
 
     @Override
     @Transactional
@@ -139,6 +143,10 @@ public class SeatServiceImpl implements SeatService {
                 .map(seat -> {
                     seat.release();
                     publishStatusChanged(seat);
+                    // 복구와 같은 트랜잭션에 seat.released를 기록해, 복구가 커밋되면 이벤트도 반드시 발행되게 한다.
+                    Long eventId = seat.getEvent().getId();
+                    outboxService.append(KafkaTopicConfig.SEAT_RELEASED, String.valueOf(eventId),
+                            SeatReleasedEvent.ttlExpired(eventId, seat.getId()));
                     return SeatResponse.from(seat);
                 })
                 .toList();

@@ -14,7 +14,8 @@ k6 가상 관객을 같은 회차에 보내면 내 화면에서 좌석이 실시
 | 대기 순번 | 접수 순서를 Redis Sorted Set에 따로 기록해 `ZRANK`로 순번, 뒤 인원, 예상 대기 시간을 계산한다 | [순번 계산](./docs/trade-offs/2026-10-29-waiting-position-redis-zset.md) |
 | 입장 토큰 | 입장이 허용되면 Redis에 TTL 토큰을 발급한다. requestId 단위 `SET NX`라 중복 소비에도 한 번만 발급된다 | [Redis 토큰 vs JWT](./docs/trade-offs/2026-10-28-entry-token-redis-vs-jwt.md) |
 | 좌석 동시성 | 좌석 단위 Redis 락(`SET NX PX`)으로 동시 선점 중 1건만 통과시키고, 엔티티 상태 검증으로 이중 방어한다 | [Redis 락 선택](./docs/trade-offs/2026-10-26-redis-lock-vs-optimistic-lock.md) |
-| 결제 TTL | 결제 없이 5분이 지난 좌석을 스케줄러가 행 잠금으로 찾아 해제하고 `seat.released`를 발행한다 | [스케줄러 vs 만료 이벤트](./docs/trade-offs/2026-10-26-seat-ttl-scheduler-vs-keyspace-notification.md) |
+| 결제 TTL | 결제 없이 5분이 지난 좌석은 결제/해제 시점에 거절하고, 스케줄러가 행 잠금으로 찾아 해제한 뒤 `seat.released`를 발행한다 | [스케줄러 vs 만료 이벤트](./docs/trade-offs/2026-10-26-seat-ttl-scheduler-vs-keyspace-notification.md) |
+| 이벤트 발행 보장 | 좌석 확정/해제와 `seat.*` 이벤트를 같은 트랜잭션에 outbox로 기록하고, 발행기가 `FOR UPDATE SKIP LOCKED`로 나눠 가져가 적어도 한 번 발행한다 | [Transactional Outbox](./docs/trade-offs/2026-10-29-transactional-outbox.md) |
 | 실시간 반영 | 좌석 상태 변경을 커밋 이후 STOMP로 브로드캐스트하고, 입장 허용은 `entry.granted`를 릴레이해 알린다 | [브로드캐스트 방식](./docs/trade-offs/2026-10-28-websocket-broadcast-after-commit.md) |
 | 실패 처리 | Consumer는 3회 재시도 후 DLT로 보낸다. 입장 요청 DLT는 1회 자동 재투입하고, 그래도 실패하면 사용자에게 다시 줄 서기를 안내한다 | [재시도/DLT](./docs/trade-offs/2026-10-28-consumer-retry-and-dlt.md), [DLT 재처리](./docs/trade-offs/2026-10-29-dlt-redrive-and-stats.md) |
 | 통계 | 입장 허용/결제 완료/결제 실패/시간 초과를 Kafka로 구독해 Redis에 멱등 집계한다(Lua 스크립트) | [DLT 재처리와 통계](./docs/trade-offs/2026-10-29-dlt-redrive-and-stats.md) |
@@ -154,7 +155,8 @@ backend/src/main/java/com/ticketing/api
 │   ├── event     회차, 지난 회차 정리
 │   ├── queue     입장 요청/대기 순번/입장 토큰, Queue Worker, DLT 재처리
 │   ├── seat      좌석, Redis 락, TTL 해제, WebSocket 브로드캐스트
-│   ├── payment   Mock 결제, seat.* 이벤트 발행
+│   ├── payment   Mock 결제
+│   ├── outbox    seat.* 이벤트 기록/발행 (Transactional Outbox)
 │   └── stats     통계 Consumer
 └── global        Kafka/WebSocket 설정, 공통 응답, 예외 처리
 frontend/src
