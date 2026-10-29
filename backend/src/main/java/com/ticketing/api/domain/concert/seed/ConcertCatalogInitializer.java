@@ -2,8 +2,7 @@ package com.ticketing.api.domain.concert.seed;
 
 import com.ticketing.api.domain.concert.service.ConcertService;
 import lombok.RequiredArgsConstructor;
-import org.springframework.boot.ApplicationArguments;
-import org.springframework.boot.ApplicationRunner;
+import org.springframework.beans.factory.SmartInitializingSingleton;
 import org.springframework.stereotype.Component;
 
 /**
@@ -11,12 +10,16 @@ import org.springframework.stereotype.Component;
  */
 @Component
 @RequiredArgsConstructor
-public class ConcertCatalogInitializer implements ApplicationRunner {
+public class ConcertCatalogInitializer implements SmartInitializingSingleton {
 
     private final ConcertService concertService;
 
+    /**
+     * 모든 싱글톤 빈이 준비된 직후, 웹 서버가 요청을 받기 시작하기 전에 시드를 넣는다.
+     * ApplicationRunner는 웹 서버 기동 이후에 실행되어, 그 사이에 들어온 공연 목록 조회가 빈 목록을 받았다.
+     */
     @Override
-    public void run(ApplicationArguments args) {
+    public void afterSingletonsInstantiated() {
         concertService.initializeCatalog();
     }
 }
