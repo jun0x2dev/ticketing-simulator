@@ -17,10 +17,11 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * PaymentService 구현체. 결제 게이트웨이 호출(지연 포함)은 트랜잭션 밖에서 수행하고,
- * 좌석 상태 변경과 결제 기록은 각각 짧은 트랜잭션으로 처리한다.
+ * 좌석 상태 변경과 결제 기록은 하나의 짧은 트랜잭션으로 묶어 처리한다.
  */
 @Service
 @RequiredArgsConstructor
@@ -33,6 +34,8 @@ public class PaymentServiceImpl implements PaymentService {
     private final SeatService seatService;
     private final MockPaymentGateway paymentGateway;
     private final SeatEventProducer seatEventProducer;
+    // 게이트웨이 호출 이후의 DB 작업만 트랜잭션으로 묶기 위해 선언적 @Transactional 대신 사용한다.
+    private final TransactionTemplate transactionTemplate;
 
     @Override
     // 게이트웨이 지연 동안 DB 커넥션을 붙잡지 않도록 메서드 전체를 트랜잭션 없이 실행한다.
@@ -44,16 +47,21 @@ public class PaymentServiceImpl implements PaymentService {
         boolean approved = paymentGateway.charge();
 
         if (approved) {
-            // 결제 중 TTL 복구나 같은 좌석의 다른 결제가 먼저 상태를 바꿨다면 여기서 실패한다 (Mock이라 환불은 없음).
-            seatService.confirmSeat(seatId, entryToken);
-            Payment payment = paymentRepository.save(Payment.create(seatId, PaymentStatus.SUCCESS));
+            // 좌석 확정과 결제 기록을 한 트랜잭션으로 묶어, 기록 없이 확정만 된 좌석이 남지 않게 한다.
+            // 결제 중 선점이 만료되었거나 같은 좌석의 다른 결제가 먼저 상태를 바꿨다면 여기서 실패한다 (Mock이라 환불은 없음).
+            Payment payment = transactionTemplate.execute(status -> {
+                seatService.confirmSeat(seatId, entryToken);
+                return paymentRepository.save(Payment.create(seatId, PaymentStatus.SUCCESS));
+            });
             seatEventProducer.sendConfirmed(SeatConfirmedEvent.of(seat.eventId(), seatId, payment.getId()));
             log.info("결제 승인 - seatId: {}, paymentId: {}", seatId, payment.getId());
             return PaymentResponse.from(payment);
         }
 
-        seatService.releaseSeat(seatId, entryToken);
-        Payment payment = paymentRepository.save(Payment.create(seatId, PaymentStatus.FAILED));
+        Payment payment = transactionTemplate.execute(status -> {
+            seatService.releaseSeat(seatId, entryToken);
+            return paymentRepository.save(Payment.create(seatId, PaymentStatus.FAILED));
+        });
         seatEventProducer.sendReleased(SeatReleasedEvent.paymentFailed(seat.eventId(), seatId, payment.getId()));
         log.info("결제 거절, 좌석 해제 - seatId: {}, paymentId: {}", seatId, payment.getId());
         return PaymentResponse.from(payment);

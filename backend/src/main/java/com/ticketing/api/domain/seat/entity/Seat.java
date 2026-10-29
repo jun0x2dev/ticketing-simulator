@@ -101,6 +101,10 @@ public class Seat {
         if (holderToken == null || !holderToken.equals(this.heldBy)) {
             throw new CustomException(ErrorCode.SEAT_HOLDER_MISMATCH);
         }
+        // TTL 스케줄러는 몇 초 간격으로만 돌기 때문에, 제한시간이 지난 선점은 스케줄러가 풀기 전이라도 여기서 거절한다.
+        if (this.heldAt.plus(HOLD_TTL).isBefore(LocalDateTime.now())) {
+            throw new CustomException(ErrorCode.SEAT_HOLD_EXPIRED);
+        }
     }
 
     /**
