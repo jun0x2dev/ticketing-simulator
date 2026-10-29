@@ -17,7 +17,7 @@ DB entity 없이 producer/consumer, 서비스, Redis 토큰 관리자로 구성�
 - 좌석 선점(`seat` 도메인)은 `X-Entry-Token` 헤더의 토큰이 유효하고 좌석의 이벤트와 같아야 한다.
 - 실패 처리: Consumer가 실패하면 1초 간격 3회 재시도 후 `entry.requested.DLT`로 이동한다(`KafkaConsumerConfig`).
 - DLT 재처리: `EntryRequestDltConsumer`가 DLT 도착 5초 뒤(`queue.dlt.redrive-delay-ms`) `redriveCount`를 1 올려 원래 토픽으로 한 번 다시 보낸다. 재투입본도 실패해 다시 DLT에 오면 대기 줄에서 빼고 `entry:failed:{requestId}`(토큰과 같은 TTL)로 표시한다. 상태 조회는 `FAILED`를 반환하고, 대기 화면은 "다시 줄 서기"를 안내한다. DLT Consumer 자체의 예외는 다시 DLT로 보내지 않고 에러 로그로 남긴다.
-- `EntryGrantedRelayConsumer`가 `entry.granted`를 구독해 `/topic/entries/{requestId}`로 WebSocket 알림을 보낸다(토큰 미포함). 클라이언트는 알림을 받으면 `GET /api/v1/entries/{requestId}`로 토큰을 가져간다. 인스턴스별 고유 그룹 + 최신 오프셋으로 구독한다.
+- `EntryGrantedRelayConsumer`가 `entry.granted`를 구독해 `/topic/entries/{requestId}`로 WebSocket 알림을 보낸다(토큰 미포함). 클라이언트는 알림을 받으면 `GET /api/v1/events/{eventId}/entries/{requestId}`로 토큰을 가져간다. 인스턴스별 고유 그룹 + 최신 오프셋으로 구독한다.
 - 미구현: 입장 요청의 이벤트 오픈 시각 검증, 하위 Consumer DLT(`*.DLT`)의 재처리
 
 ## 관련 이벤트 (Kafka 토픽)

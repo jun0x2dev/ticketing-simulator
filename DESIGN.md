@@ -6,7 +6,7 @@
 
 - 순간적 대량 트래픽을 대기열(Kafka)로 완충하는 구조 증명
 - 좌석 선점 동시성 제어 + 결제 제한시간(TTL) 로직 증명
-- 사용자가 파라미터(가상 유저 수, 좌석 수, 오픈 시각)를 설정해서 직접 부하를 발생시키고, 실시간 대기 화면과 Mock 결제까지 체험
+- 사용자가 공연을 골라 대기열 → 좌석 선택 → Mock 결제까지 직접 체험하고, k6 가상 관객으로 같은 회차에 부하를 발생시켜 경쟁 상황을 재현
 - 부하 테스트 전/후(대기열 적용 전/후) 서버 안정성 수치 비교를 핵심 어필 자료로 남긴다
 
 배포는 범위에서 제외하고 마지막 단계로 둔다. 1차 목표는 로컬에서 end-to-end로 완전히 동작하는 상태.
@@ -16,33 +16,31 @@
 ## 2. 시스템 구성
 
 ```
-[Simulator Controller]
-  사용자가 가상 유저 수 / 좌석 수 / 오픈 시각 입력
+[공연 목록] 사용자가 공연 선택 → 새 회차(Event) + 좌석 생성 (좌석 수는 서버 템플릿 값)
         |
         v
-  [가상 유저 트래픽 생성기] --(동시 입장 요청)--> [API Gateway / Rate Limiter]
+  [사용자 / k6 가상 관객] --(동시 입장 요청)--> [입장 요청 API] --(대기 순번: Redis Sorted Set)
         |
         v
-  [Kafka: entry.requested] --(순서대로 소비)--> [Queue Worker] --(입장 허용 토큰 발급)--> [WebSocket: 대기 순번 브로드캐스트]
+  [Kafka: entry.requested] --(TPS 제한 소비)--> [Queue Worker] --(입장 토큰 발급: Redis)--> [Kafka: entry.granted]
+        |        └ 실패 시 3회 재시도 → entry.requested.DLT → 1회 재투입 → 최종 실패 표시         |
+        |                                                                                   v
+        |                                                        [WebSocket: 입장 허용 알림] [통계 Consumer]
+        v
+  [좌석 선점 API] --(입장 토큰 검증 + Redis 분산 락)--> [좌석 HELD] --(커밋 후 WebSocket 좌석 현황 브로드캐스트)
         |
         v
-  [좌석 선점 API] --(Redis 분산 락)--> [좌석 선점 성공/실패]
-        |
-        v
-  [Mock 결제 페이지] --(TTL 내 결제 완료 여부)--> [Kafka: seat.confirmed / seat.released]
-        |
-        v
-  [실시간 좌석 현황 WebSocket 브로드캐스트]
+  [Mock 결제] --(TTL 내 결제 완료 여부)--> [Kafka: seat.confirmed / seat.released] --> [통계 Consumer]
 ```
 
 **MVP는 모놀리식**으로 진행한다. 하나의 Spring Boot 애플리케이션 안에서 Producer/Consumer를 패키지 단위로 분리해 구현하며, 이 구조로도 Kafka의 핵심 가치(비동기 이벤트 처리, 대기열 완충)는 충분히 증명 가능하다. 서비스 간 분리는 핵심 어필 포인트(동시성/대기열/TTL)와 무관한 복잡도만 추가하므로 MVP 범위에서 제외한다.
 
 | 모듈 (패키지 단위) | 역할 | 주요 기술 |
 |---|---|---|
-| ticketing-api | 좌석 선점, 결제, 시뮬레이션 설정 API | Spring Boot, JPA, Redis |
+| ticketing-api | 공연/회차, 좌석 선점, 결제, 통계 API | Spring Boot, JPA, Redis |
 | queue (Kafka Producer/Consumer) | 대기열 소비, 입장 토큰 발급 | Spring Kafka |
 | load-generator | 가상 유저 트래픽 생성 (별도 실행 스크립트) | k6 스크립트 |
-| frontend | 공연 목록, 실시간 대기/좌석 화면, Mock 결제 페이지 | React (또는 Thymeleaf + 최소 JS) |
+| frontend | 공연 목록, 실시간 대기/좌석 화면, Mock 결제, 예매 완료 화면 | React + Vite |
 
 ### 확장 과제 (선택)
 - 여유가 있다면 `queue` 모듈을 별도 프로세스(`queue-worker` 서비스)로 분리해보는 것을 MSA 전환 실험으로 남겨둔다. k8s 확장 과제와 함께 진행하면 자연스럽게 이어진다.
@@ -53,15 +51,15 @@
 
 ### 3.1 대기열 (Kafka 기반 완충)
 
-- 오픈 시각이 되면 가상 유저들의 "입장 요청"이 동시에 들어옴
+- 회차가 열리면 사용자와 가상 관객의 "입장 요청"이 동시에 들어옴
 - 이를 바로 처리하지 않고 `entry.requested` 토픽에 적재 → Queue Worker가 **일정 처리량(TPS 제한)**으로만 순차 소비
-- 소비된 순서대로 "입장 허용 토큰"(JWT 또는 짧은 TTL 토큰) 발급, 이 토큰이 있어야 좌석 선점 API 호출 가능
+- 소비된 순서대로 "입장 허용 토큰"(Redis에 저장하는 짧은 TTL 토큰) 발급, 이 토큰이 있어야 좌석 선점 API 호출 가능
 - 대기 순번은 Kafka와 별도로 Redis Sorted Set에 접수 순서를 기록해 계산한다 (`docs/trade-offs/2026-10-29-waiting-position-redis-zset.md`)
 - 파티션 키는 이벤트(공연) ID — 같은 이벤트의 요청은 순서 보장, 여러 이벤트 동시 시뮬레이션도 가능하게 확장 여지를 둠
 
 ### 3.2 좌석 선점 동시성 제어
 
-- 좌석 단위 Redis 락(`SETNX`, key=`seat:lock:{eventId}:{seatId}`)으로 동시 선점 방지
+- 좌석 단위 Redis 락(`SET NX PX`, key=`seat:lock:{seatId}`)으로 동시 선점 방지
 - 선점 성공 시 좌석 상태를 `HELD`로 변경하고 TTL(예: 5분) 설정
 - TTL 내 결제 미완료 시 자동으로 `AVAILABLE`로 복구 (Redis TTL 만료 이벤트 또는 스케줄러로 체크)
 
@@ -88,10 +86,10 @@
 ## 4. 사용자 플로우 (프론트엔드)
 
 1. **공연 목록**: 미리 준비된 공연 10개(50~500석) 중 하나를 골라 "예매하기" → 그 공연의 새 회차가 열린다. 좌석 수는 서버가 정하므로 사용자가 임의 규모로 서버를 압박할 수 없다. 가상 관객 수는 k6로 따로 정한다.
-2. **대기 화면**: 오픈 시각이 되면 WebSocket으로 "현재 대기 순번", "입장 처리 중" 실시간 표시
-3. **좌석 선택 화면**: 입장 허용된 유저만 접근, 실시간 좌석 현황(선점됨/가능) 표시, 좌석 클릭 시 선점 시도
-4. **Mock 결제 화면**: 제한시간 타이머 표시, 결제 폼 입력 → 성공/실패 처리
-5. **결과 대시보드**: 시뮬레이션 종료 후 처리량/에러율/소요시간 등 통계 표시
+2. **대기 화면**: 나의 대기순서, 내 뒤 대기 인원, 예상 대기 시간을 1초마다 갱신하고, 입장이 허용되면 WebSocket 알림으로 즉시 좌석 선택으로 이동. 처리에 최종 실패하면 다시 줄 서기 안내
+3. **좌석 선택 화면**: 입장 허용된 유저만 접근, 실시간 좌석 현황 표시, 좌석을 고른 뒤 "좌석 선택 완료"로 선점 시도 (고른 좌석을 다른 관객이 먼저 가져가면 안내)
+4. **Mock 결제 화면**: 제한시간 타이머, 예매 정보/결제 수단/약관 동의 → 성공/실패 처리
+5. **예매 완료 화면**: 예매번호와 결과, 이 회차의 실시간 판매 현황과 통계(입장 허용/결제 완료/결제 실패/시간 초과). 처리량/에러율 같은 부하 지표는 k6 결과로 본다
 
 ---
 
@@ -126,17 +124,18 @@ k6 시나리오용 `POST /api/v1/events`는 남겨 두되 좌석 수 상한은 5
 
 | 토픽 | Producer | Consumer | 설명 |
 |---|---|---|---|
-| entry.requested | ticketing-api (gateway) | queue-worker | 입장 요청 적재 |
-| entry.granted | queue-worker | frontend(WebSocket relay) | 입장 허용 알림 |
-| seat.confirmed | ticketing-api | 통계/대시보드 | 결제 완료 좌석 |
-| seat.released | ticketing-api | 통계/대시보드 | TTL 만료/결제 실패 좌석 |
+| entry.requested | 입장 요청 API | Queue Worker | 입장 요청 적재 (파티션 키 eventId) |
+| entry.requested.DLT | Kafka 에러 핸들러 | DLT 재처리 Consumer | 재시도 소진 요청. 1회 재투입 후 최종 실패 처리 |
+| entry.granted | Queue Worker | WebSocket 릴레이, 통계 | 입장 허용 알림 |
+| seat.confirmed | 결제 | 통계 | 결제 완료 좌석 |
+| seat.released | 결제, TTL 스케줄러 | 통계 | 결제 실패/TTL 만료 좌석 |
 
 ---
 
 ## 7. 사용 기술 목록
 
 ### 핵심
-- **Java 17 / Spring Boot 3.x** — API 서버
+- **Java 17 / Spring Boot 4.1** — API 서버
 - **Spring Kafka** — 이벤트 발행/구독
 - **Redis** — 좌석 분산 락, TTL 관리, 대기열 보조
 - **MySQL** — 좌석/이벤트/결제 영속 데이터
@@ -148,7 +147,7 @@ k6 시나리오용 `POST /api/v1/events`는 남겨 두되 좌석 수 상한은 5
 - **Grafana + Prometheus** (선택) — 실시간 트래픽/시스템 지표 시각화, 시뮬레이션 중 모니터링 데모용
 
 ### 프론트엔드
-- **React** (또는 기존 Thymeleaf 유지, 분리 고려 시 React 추천) — 설정/대기/결제 화면
+- **React + Vite + TypeScript** — 공연 목록/대기/좌석/결제/예매 완료 화면
 - **SockJS/STOMP client** — WebSocket 연동
 
 ### 배포
@@ -164,7 +163,9 @@ k6 시나리오용 `POST /api/v1/events`는 남겨 두되 좌석 수 상한은 5
 
 ## 8. 단계별 구현 순서
 
-1. ticketing-api: 좌석/이벤트 기본 CRUD, 시뮬레이션 설정 API
+1~8단계는 구현 완료. 이후 대기 순번 표시, 지난 회차 정리, DLT 재처리, 통계 Consumer를 추가했다.
+
+1. ticketing-api: 좌석/이벤트 기본 CRUD (이후 공연 템플릿 + 회차 생성으로 변경)
 2. Kafka 연동: entry.requested 발행/소비 기본 구조
 3. Redis 좌석 락 + TTL 자동 해제 구현
 4. Mock 결제 API + seat.confirmed/released 이벤트 연동

@@ -12,7 +12,7 @@
 - HELD가 아닌 좌석은 게이트웨이 호출 전에 `SEAT_NOT_HELD`로 거절한다
 - 결제 중 TTL 스케줄러가 좌석을 해제하면 승인 후 `confirmSeat`에서 `SEAT_NOT_HELD`로 실패한다 (Mock이라 환불 처리 없음)
 - TTL 만료 해제 시 `seat.released`(`TTL_EXPIRED`, paymentId null)는 seat 스케줄러가 발행한다
-- 미구현: 두 토픽의 Consumer(통계)
+- 두 토픽은 stats 도메인의 `EventStatsConsumer`가 회차 통계로 집계한다(paymentId 멱등 키).
 
 ## 관련 이벤트 (Kafka 토픽)
 
