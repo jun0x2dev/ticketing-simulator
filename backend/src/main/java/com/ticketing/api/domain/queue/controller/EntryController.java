@@ -45,13 +45,15 @@ public class EntryController {
     }
 
     /**
-     * 입장 요청의 처리 상태를 조회한다. 허용되었으면 좌석 선점에 쓸 입장 토큰이 함께 반환된다.
+     * 입장 요청의 처리 상태를 조회한다. 대기 중이면 대기 순번과 예상 대기 시간이,
+     * 허용되었으면 좌석 선점에 쓸 입장 토큰이 함께 반환된다.
      *
+     * @param eventId   이벤트 ID
      * @param requestId 입장 요청 ID
      * @return 대기/허용 상태
      */
-    @GetMapping("/api/v1/entries/{requestId}")
-    public ApiResponse<EntryStatusResponse> getEntryStatus(@PathVariable String requestId) {
-        return ApiResponse.success(entryService.getEntryStatus(requestId));
+    @GetMapping("/api/v1/events/{eventId}/entries/{requestId}")
+    public ApiResponse<EntryStatusResponse> getEntryStatus(@PathVariable Long eventId, @PathVariable String requestId) {
+        return ApiResponse.success(entryService.getEntryStatus(eventId, requestId));
     }
 }
