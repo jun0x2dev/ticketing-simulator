@@ -111,7 +111,7 @@ k6 시나리오용 `POST /api/v1/events`는 남겨 두되 좌석 수 상한은 5
 
 ### POST /api/v1/payments
 
-선점할 때 쓴 입장 토큰(`X-Entry-Token`)이 필요하다. 선점자 본인만 결제할 수 있다.
+선점할 때 쓴 입장 토큰(`X-Entry-Token`)이 필요하다. 선점자 본인만 결제할 수 있고, 같은 좌석의 결제가 진행 중이면 409(`PAYMENT_IN_PROGRESS`)로 거절한다. 승인 후 좌석 확정에 실패하면 승인을 취소한다.
 
 ```json
 {

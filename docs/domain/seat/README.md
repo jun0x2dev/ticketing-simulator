@@ -14,7 +14,8 @@
 - 제한시간: 결제/해제 시 `heldAt + 5분`이 지났으면 `SEAT_HOLD_EXPIRED`(409)로 거절한다. TTL 스케줄러의 실행 간격과 관계없이 5분이 정확한 마감이 된다
 - 토큰당 1석: 좌석 락보다 먼저 `seat:holder:{token}`(값 seatId, TTL 5분)을 `SET NX`로 건다. 이미 있으면 `SEAT_HOLD_LIMIT_EXCEEDED`(409). 좌석 락 실패·DB 반영 실패·확정·해제 시 지우고, TTL 만료 시에는 좌석 락과 함께 스스로 사라진다
 - `POST /api/v1/seats/{seatId}/release` — `X-Entry-Token` 헤더 필수. 선점자 본인만 `HELD`를 `AVAILABLE`로 되돌리고 좌석 락과 토큰 표시를 지운다 (결제 화면의 "좌석 다시 선택")
-- 락 해제는 UUID 토큰이 일치할 때만 수행(TTL 만료 후 타 요청이 얻은 락 보호)
+- 락 획득/해제는 공통 `RedisLock`(global.lock)을 쓴다. 해제는 UUID 토큰이 일치할 때만, 조회와 삭제를 Lua 스크립트 하나로 원자적으로 수행한다(TTL 만료 후 타 요청이 얻은 락 보호)
+- Redis 정리는 DB 트랜잭션 결과를 따른다: 선점은 커밋되지 않으면(검증 예외든 커밋 실패든) `afterCompletion`에서 좌석 락과 토큰 표시를 풀고, 확정/해제는 `afterCommit`에서만 토큰 표시와 좌석 락을 지운다. DB와 Redis가 어긋나 좌석이나 사용자가 5분 동안 묶이는 일을 막는다([트러블슈팅](../../troubleshooting/2026-10-29-redis-side-effects-before-commit.md))
 - 선점 시 `heldAt`을 기록한다. `SeatHoldExpirationScheduler`가 5초마다(fixedDelay) `heldAt < now - 5분`인 `HELD` 좌석을 행 잠금(`FOR UPDATE`)으로 조회해 `AVAILABLE`로 복구하고, 같은 트랜잭션에서 `seat.released`(`TTL_EXPIRED`)를 outbox에 기록한다 (Redis 락은 TTL로 이미 만료된 상태)
 - 결제 승인 시 payment 도메인이 `confirmSeat`으로 `CONFIRMED` 전환, 거절 시 `releaseSeat` 호출
 - `confirmSeat`/`releaseSeat`도 행 잠금(`findByIdForUpdate`)으로 읽은 뒤 선점자를 확인한다. TTL 복구, 같은 좌석의 동시 결제와 순서가 보장된다 ([트러블슈팅](../../troubleshooting/2026-10-29-seat-confirm-race-with-ttl-release.md))

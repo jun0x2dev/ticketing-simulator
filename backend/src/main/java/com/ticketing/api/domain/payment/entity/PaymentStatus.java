@@ -5,5 +5,7 @@ package com.ticketing.api.domain.payment.entity;
  */
 public enum PaymentStatus {
     SUCCESS,
-    FAILED
+    FAILED,
+    // 승인됐지만 좌석 확정에 실패해 게이트웨이에 승인 취소를 요청한 결제
+    CANCELLED
 }
