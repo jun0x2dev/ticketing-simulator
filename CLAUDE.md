@@ -3,10 +3,10 @@
 ## 프로젝트 설명
 
 - **프로젝트명**: ticketing-simulator
-- **설명**: 특정 시각에 대규모 요청이 몰리는 티케팅 상황을 사용자가 직접 설정해서 재현하는 시뮬레이터. 대기열(Kafka), 좌석 선점 동시성 제어(Redis), 결제 TTL, 실시간 브로드캐스트(WebSocket)를 핵심으로 다룬다.
+- **설명**: 특정 시각에 대규모 요청이 몰리는 티케팅 상황을 사용자가 공연을 골라 직접 체험하고, k6 가상 관객으로 부하를 재현하는 시뮬레이터. 대기열(Kafka), 좌석 선점 동시성 제어(Redis), 결제 TTL, 실시간 브로드캐스트(WebSocket)를 핵심으로 다룬다.
 - **설계 문서**: `DESIGN.md` 참고
-- **백엔드**: Java 17 / Spring Boot 3.x / JPA / MySQL / Redis / Kafka
-- **프론트엔드**: React (또는 Thymeleaf, 미정)
+- **백엔드**: Java 17 / Spring Boot 4.1 / JPA / MySQL / Redis / Kafka
+- **프론트엔드**: React + Vite + TypeScript
 - **구성**: MVP는 모놀리식. 서비스 분리는 확장 과제로만 고려.
 
 ---

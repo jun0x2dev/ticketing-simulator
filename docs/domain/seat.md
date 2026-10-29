@@ -19,4 +19,6 @@
 
 ## 관련 이벤트 (Kafka 토픽)
 
-현재 발행/소비 없음. 결제 단계에서 `seat.confirmed`, `seat.released`를 발행할 예정.
+- `seat.released`(`TTL_EXPIRED`): `SeatHoldExpirationScheduler`가 TTL 만료 복구 후 발행한다.
+- `seat.confirmed`, `seat.released`(`PAYMENT_FAILED`): payment 도메인이 결제 결과에 따라 발행한다.
+- 소비: stats 도메인의 `EventStatsConsumer`가 회차 통계로 집계한다.
