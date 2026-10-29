@@ -7,7 +7,7 @@
 
 ## 주요 상태/흐름
 
-- 앱 시작 시 `ConcertCatalogInitializer`가 기본 공연 10개를 등록한다. 테이블이 비어 있을 때만 넣으므로 재시작해도 중복되지 않는다.
+- 앱 시작 시 웹 서버가 요청을 받기 전에 `ConcertCatalogInitializer`가 기본 공연 10개를 등록한다. 테이블이 비어 있을 때만 넣으므로 재시작해도 중복되지 않는다.
 - `GET /api/v1/concerts` — 공연 목록. 고정 10개라 페이징하지 않는다.
 - `POST /api/v1/concerts/{concertId}/runs` — 템플릿의 이름과 좌석 수로 새 Event를 만들고(오픈 시각 = 지금) 좌석을 초기화한다. 고를 때마다 빈 좌석에서 시작하는 회차가 생긴다.
 - 좌석 수는 50~500석으로, `EventCreateRequest.MAX_SEAT_COUNT`(500) 안에 있다.
