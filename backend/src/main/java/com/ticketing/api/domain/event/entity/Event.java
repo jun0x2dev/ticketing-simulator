@@ -5,6 +5,7 @@ import jakarta.persistence.Entity;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
+import jakarta.persistence.Index;
 import jakarta.persistence.Table;
 import java.time.LocalDateTime;
 import lombok.AccessLevel;
@@ -16,7 +17,8 @@ import lombok.NoArgsConstructor;
  * 좌석 수와 오픈 시각을 가지며, 상태 전이는 없는 단순 메타데이터다.
  */
 @Entity
-@Table(name = "events")
+// 지난 회차 정리 작업이 오픈 시각으로 대상을 찾으므로 인덱스를 둔다.
+@Table(name = "events", indexes = @Index(name = "idx_events_open_at", columnList = "open_at"))
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class Event {
@@ -31,7 +33,7 @@ public class Event {
     @Column(nullable = false)
     private int seatCount;
 
-    @Column(nullable = false)
+    @Column(name = "open_at", nullable = false)
     private LocalDateTime openAt;
 
     private Event(String name, int seatCount, LocalDateTime openAt) {

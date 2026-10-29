@@ -8,9 +8,12 @@ import com.ticketing.api.domain.event.service.EventService;
 import com.ticketing.api.domain.seat.service.SeatService;
 import com.ticketing.api.global.exception.CustomException;
 import com.ticketing.api.global.exception.ErrorCode;
+import java.time.LocalDateTime;
+import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -45,5 +48,19 @@ public class EventServiceImpl implements EventService {
         Event event = eventRepository.findById(eventId)
                 .orElseThrow(() -> new CustomException(ErrorCode.EVENT_NOT_FOUND));
         return EventResponse.from(event);
+    }
+
+    @Override
+    @Transactional
+    public int deleteRunsOpenedBefore(LocalDateTime openedBefore, int batchSize) {
+        List<Long> eventIds = eventRepository.findIdsOpenedBefore(openedBefore, PageRequest.of(0, batchSize));
+        if (eventIds.isEmpty()) {
+            return 0;
+        }
+        // 좌석이 회차를 외래키로 참조하므로 좌석을 먼저 지운다. 결제 기록은 좌석과 FK가 없는 이력이라 남겨 둔다.
+        int deletedSeats = seatService.deleteSeatsOfEvents(eventIds);
+        eventRepository.deleteAllByIdInBatch(eventIds);
+        log.info("지난 회차 정리 - events: {}, seats: {}", eventIds.size(), deletedSeats);
+        return eventIds.size();
     }
 }
