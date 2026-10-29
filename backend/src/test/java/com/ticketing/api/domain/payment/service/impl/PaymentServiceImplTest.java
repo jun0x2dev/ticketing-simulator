@@ -3,21 +3,23 @@ package com.ticketing.api.domain.payment.service.impl;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.ticketing.api.domain.outbox.service.OutboxService;
 import com.ticketing.api.domain.payment.dto.PaymentResponse;
 import com.ticketing.api.domain.payment.dto.SeatConfirmedEvent;
 import com.ticketing.api.domain.payment.dto.SeatReleasedEvent;
 import com.ticketing.api.domain.payment.entity.Payment;
 import com.ticketing.api.domain.payment.entity.PaymentStatus;
 import com.ticketing.api.domain.payment.gateway.MockPaymentGateway;
-import com.ticketing.api.domain.payment.producer.SeatEventProducer;
 import com.ticketing.api.domain.payment.repository.PaymentRepository;
 import com.ticketing.api.domain.seat.dto.SeatResponse;
 import com.ticketing.api.domain.seat.entity.SeatStatus;
 import com.ticketing.api.domain.seat.service.SeatService;
+import com.ticketing.api.global.config.KafkaTopicConfig;
 import com.ticketing.api.global.exception.CustomException;
 import com.ticketing.api.global.exception.ErrorCode;
 import org.junit.jupiter.api.DisplayName;
@@ -49,7 +51,7 @@ class PaymentServiceImplTest {
     private MockPaymentGateway paymentGateway;
 
     @Mock
-    private SeatEventProducer seatEventProducer;
+    private OutboxService outboxService;
 
     @Mock
     private TransactionTemplate transactionTemplate;
@@ -57,9 +59,9 @@ class PaymentServiceImplTest {
     @InjectMocks
     private PaymentServiceImpl paymentService;
 
-    // 결제가 승인되면 좌석이 확정되고 seat.confirmed 이벤트가 발행되는지 확인
+    // 결제가 승인되면 좌석이 확정되고 seat.confirmed 이벤트가 outbox에 기록되는지 확인
     @Test
-    @DisplayName("결제가 승인되면 좌석을 확정하고 seat.confirmed를 발행한다")
+    @DisplayName("결제가 승인되면 좌석을 확정하고 seat.confirmed를 outbox에 기록한다")
     void pay_approved_confirmsSeat() {
         // given
         when(seatService.getHeldSeat(SEAT_ID, TOKEN)).thenReturn(seat(SeatStatus.HELD));
@@ -74,12 +76,12 @@ class PaymentServiceImplTest {
         assertThat(response.status()).isEqualTo(PaymentStatus.SUCCESS);
         verify(seatService).confirmSeat(SEAT_ID, TOKEN);
         verify(seatService, never()).releaseSeat(SEAT_ID, TOKEN);
-        verify(seatEventProducer).sendConfirmed(any(SeatConfirmedEvent.class));
+        verify(outboxService).append(eq(KafkaTopicConfig.SEAT_CONFIRMED), eq(String.valueOf(EVENT_ID)), any(SeatConfirmedEvent.class));
     }
 
-    // 결제가 거절되면 좌석이 해제되고 seat.released 이벤트가 발행되는지 확인
+    // 결제가 거절되면 좌석이 해제되고 seat.released 이벤트가 outbox에 기록되는지 확인
     @Test
-    @DisplayName("결제가 거절되면 좌석을 해제하고 seat.released를 발행한다")
+    @DisplayName("결제가 거절되면 좌석을 해제하고 seat.released를 outbox에 기록한다")
     void pay_declined_releasesSeat() {
         // given
         when(seatService.getHeldSeat(SEAT_ID, TOKEN)).thenReturn(seat(SeatStatus.HELD));
@@ -94,7 +96,7 @@ class PaymentServiceImplTest {
         assertThat(response.status()).isEqualTo(PaymentStatus.FAILED);
         verify(seatService).releaseSeat(SEAT_ID, TOKEN);
         verify(seatService, never()).confirmSeat(SEAT_ID, TOKEN);
-        verify(seatEventProducer).sendReleased(any(SeatReleasedEvent.class));
+        verify(outboxService).append(eq(KafkaTopicConfig.SEAT_RELEASED), eq(String.valueOf(EVENT_ID)), any(SeatReleasedEvent.class));
     }
 
     // 선점 상태가 아닌 좌석은 결제 게이트웨이를 호출하기 전에 거절되어야 한다

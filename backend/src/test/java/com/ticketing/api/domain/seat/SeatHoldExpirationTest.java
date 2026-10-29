@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.ticketing.api.domain.event.entity.Event;
 import com.ticketing.api.domain.event.repository.EventRepository;
+import com.ticketing.api.domain.outbox.repository.OutboxEventRepository;
 import com.ticketing.api.domain.queue.token.EntryTokenManager;
 import com.ticketing.api.domain.seat.dto.SeatResponse;
 import com.ticketing.api.domain.seat.entity.Seat;
@@ -11,6 +12,7 @@ import com.ticketing.api.domain.seat.entity.SeatStatus;
 import com.ticketing.api.domain.seat.lock.SeatLockManager;
 import com.ticketing.api.domain.seat.repository.SeatRepository;
 import com.ticketing.api.domain.seat.service.SeatService;
+import com.ticketing.api.global.config.KafkaTopicConfig;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
@@ -59,6 +61,9 @@ class SeatHoldExpirationTest {
     @Autowired
     private EntryTokenManager entryTokenManager;
 
+    @Autowired
+    private OutboxEventRepository outboxEventRepository;
+
     private Long seatId;
     private String entryToken;
 
@@ -67,6 +72,7 @@ class SeatHoldExpirationTest {
         // 다른 테스트가 남긴 좌석이 섞이지 않도록 매번 비운다
         seatRepository.deleteAll();
         eventRepository.deleteAll();
+        outboxEventRepository.deleteAll();
         Event event = eventRepository.save(Event.create("콘서트 TTL 만료 테스트", 1, LocalDateTime.now().plusDays(1)));
         entryToken = entryTokenManager.issue(UUID.randomUUID().toString(), event.getId()).orElseThrow();
         Seat seat = seatRepository.save(Seat.create(event, 1));
@@ -89,6 +95,11 @@ class SeatHoldExpirationTest {
         // then
         assertThat(released).hasSize(1);
         assertThat(seatRepository.findById(seatId).orElseThrow().getStatus()).isEqualTo(SeatStatus.AVAILABLE);
+        // 복구와 같은 트랜잭션에서 seat.released(TTL_EXPIRED)가 outbox에 기록되어야 한다
+        assertThat(outboxEventRepository.findAll()).singleElement().satisfies(event -> {
+            assertThat(event.getTopic()).isEqualTo(KafkaTopicConfig.SEAT_RELEASED);
+            assertThat(event.getPayload()).contains("TTL_EXPIRED", "\"seatId\":" + seatId);
+        });
         seatService.holdSeat(seatId, entryToken);
     }
 
@@ -105,5 +116,6 @@ class SeatHoldExpirationTest {
         // then
         assertThat(released).isEmpty();
         assertThat(seatRepository.findById(seatId).orElseThrow().getStatus()).isEqualTo(SeatStatus.HELD);
+        assertThat(outboxEventRepository.count()).isZero();
     }
 }

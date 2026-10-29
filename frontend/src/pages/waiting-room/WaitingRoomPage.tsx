@@ -37,8 +37,9 @@ export function WaitingRoomPage({ concert, event, onGranted }: Props) {
       .catch((e: Error) => setError(e.message))
   }, [event.id])
 
-  // 입장 처리가 최종 실패하면 새 요청으로 줄 맨 뒤에 다시 선다.
+  // 접수가 실패했거나 입장 처리가 최종 실패하면 새 요청으로 줄 맨 뒤에 다시 선다.
   const retry = () => {
+    setError(null)
     setStatus(null)
     setInitialPosition(null)
     setRequestId(null)
@@ -79,9 +80,14 @@ export function WaitingRoomPage({ concert, event, onGranted }: Props) {
         <p className="waiting-concert">{concert.title}</p>
         <h1 className="waiting-title">예매 대기 중입니다</h1>
         {error ? (
-          <p className="alert" role="alert">
-            {error}
-          </p>
+          <>
+            <p className="alert" role="alert">
+              {error}
+            </p>
+            <button type="button" className="btn btn-primary btn-large" onClick={retry}>
+              다시 줄 서기
+            </button>
+          </>
         ) : failed ? (
           <>
             <p className="alert" role="alert">
