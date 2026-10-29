@@ -17,6 +17,10 @@ public class KafkaTopicConfig {
     public static final String ENTRY_GRANTED = "entry.granted";
     public static final String SEAT_CONFIRMED = "seat.confirmed";
     public static final String SEAT_RELEASED = "seat.released";
+    // 통계 Consumer 등 하위 Consumer가 재시도 끝에 실패한 메시지를 모으는 DLT. 공통 에러 핸들러가 "{원본 토픽}.DLT"로 보낸다.
+    public static final String ENTRY_GRANTED_DLT = ENTRY_GRANTED + ".DLT";
+    public static final String SEAT_CONFIRMED_DLT = SEAT_CONFIRMED + ".DLT";
+    public static final String SEAT_RELEASED_DLT = SEAT_RELEASED + ".DLT";
 
     /** 입장 요청 이벤트 토픽. 파티션 키는 eventId. */
     @Bean
@@ -46,5 +50,23 @@ public class KafkaTopicConfig {
     @Bean
     public NewTopic seatReleasedTopic() {
         return TopicBuilder.name(SEAT_RELEASED).partitions(3).replicas(1).build();
+    }
+
+    /** entry.granted 처리(통계/WebSocket 릴레이) 실패 메시지용 DLT. */
+    @Bean
+    public NewTopic entryGrantedDltTopic() {
+        return TopicBuilder.name(ENTRY_GRANTED_DLT).partitions(3).replicas(1).build();
+    }
+
+    /** seat.confirmed 처리(통계) 실패 메시지용 DLT. */
+    @Bean
+    public NewTopic seatConfirmedDltTopic() {
+        return TopicBuilder.name(SEAT_CONFIRMED_DLT).partitions(3).replicas(1).build();
+    }
+
+    /** seat.released 처리(통계) 실패 메시지용 DLT. */
+    @Bean
+    public NewTopic seatReleasedDltTopic() {
+        return TopicBuilder.name(SEAT_RELEASED_DLT).partitions(3).replicas(1).build();
     }
 }

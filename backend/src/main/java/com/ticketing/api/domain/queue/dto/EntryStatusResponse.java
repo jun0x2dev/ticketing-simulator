@@ -40,6 +40,16 @@ public record EntryStatusResponse(
     }
 
     /**
+     * 재처리까지 실패해 입장할 수 없게 된 상태의 응답을 생성한다. 클라이언트는 다시 입장 요청을 해야 한다.
+     *
+     * @param requestId 입장 요청 ID
+     * @return FAILED 상태 응답
+     */
+    public static EntryStatusResponse failed(String requestId) {
+        return new EntryStatusResponse(requestId, EntryStatus.FAILED, null, null, null, null);
+    }
+
+    /**
      * 입장이 허용된 상태의 응답을 생성한다.
      *
      * @param requestId 입장 요청 ID

@@ -27,6 +27,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -178,6 +179,56 @@ class EntryServiceImplTest {
         assertThat(waiting.position()).isEqualTo(45);
         assertThat(waiting.behind()).isEqualTo(120);
         assertThat(waiting.estimatedSeconds()).isEqualTo(3); // 45명 / 초당 20명 = 2.25초 → 3초
+    }
+
+    // 재처리까지 실패로 표시된 요청은 FAILED여야 한다
+    @Test
+    @DisplayName("최종 실패로 표시된 요청은 FAILED를 반환한다")
+    void getEntryStatus_failed() {
+        // given
+        when(entryTokenManager.findToken("failed-id")).thenReturn(Optional.empty());
+        when(entryTokenManager.isFailed("failed-id")).thenReturn(true);
+
+        // when
+        EntryStatusResponse failed = entryService.getEntryStatus(1L, "failed-id");
+
+        // then
+        assertThat(failed.status()).isEqualTo(EntryStatus.FAILED);
+        assertThat(failed.position()).isNull();
+    }
+
+    // DLT에서 처음 꺼낸 요청은 재투입 횟수를 1 올려 원래 토픽으로 다시 보내야 한다
+    @Test
+    @DisplayName("DLT 요청에 재투입 횟수가 남아 있으면 원래 토픽으로 다시 보낸다")
+    void handleDeadLetter_redrivesOnce() {
+        // given
+        EntryRequestedEvent event = EntryRequestedEvent.of(1L);
+
+        // when
+        entryService.handleDeadLetter(event);
+
+        // then
+        ArgumentCaptor<EntryRequestedEvent> captor = ArgumentCaptor.forClass(EntryRequestedEvent.class);
+        verify(entryRequestProducer).send(captor.capture());
+        assertThat(captor.getValue().requestId()).isEqualTo(event.requestId());
+        assertThat(captor.getValue().redriveCount()).isEqualTo(1);
+        verify(entryTokenManager, never()).markFailed(any());
+    }
+
+    // 재투입까지 실패한 요청은 다시 보내지 않고 줄에서 빼고 실패로 표시해야 한다 (무한 재처리 방지)
+    @Test
+    @DisplayName("재투입 횟수를 다 쓴 DLT 요청은 줄에서 빼고 최종 실패로 표시한다")
+    void handleDeadLetter_exhausted_marksFailed() {
+        // given
+        EntryRequestedEvent event = EntryRequestedEvent.of(1L).redriven();
+
+        // when
+        entryService.handleDeadLetter(event);
+
+        // then
+        verify(entryRequestProducer, never()).send(any(EntryRequestedEvent.class));
+        verify(waitingLineManager).leave(1L, event.requestId());
+        verify(entryTokenManager).markFailed(event.requestId());
     }
 
     // 줄에도 없고 토큰도 없는 요청은 순번 없이 WAITING이어야 한다
