@@ -139,4 +139,17 @@ class EntryTokenIntegrationTest {
                 .isEqualTo(ErrorCode.ENTRY_TOKEN_INVALID);
         assertThat(seatService.holdSeat(seatId, ownToken).id()).isEqualTo(seatId);
     }
+
+    // 최종 실패로 표시한 요청만 실패로 조회되고, 표시에는 만료 시간이 있어야 한다
+    @Test
+    @DisplayName("최종 실패 표시는 해당 요청에만 적용되고 만료 시간이 있다")
+    void markFailed_isScopedAndExpires() {
+        // when
+        entryTokenManager.markFailed("failed-request");
+
+        // then
+        assertThat(entryTokenManager.isFailed("failed-request")).isTrue();
+        assertThat(entryTokenManager.isFailed("other-request")).isFalse();
+        assertThat(redisTemplate.getExpire("entry:failed:failed-request")).isPositive();
+    }
 }

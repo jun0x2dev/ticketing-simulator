@@ -28,7 +28,7 @@ export interface Seat {
 
 export interface EntryStatus {
   requestId: string
-  status: 'WAITING' | 'GRANTED'
+  status: 'WAITING' | 'GRANTED' | 'FAILED'
   token: string | null
   // 대기 중일 때만 채워진다. 줄에서 막 빠져 입장 처리 중이면 null이다.
   position: number | null
@@ -41,6 +41,14 @@ export interface Payment {
   seatId: number
   status: 'SUCCESS' | 'FAILED'
   createdAt: string
+}
+
+export interface EventStats {
+  eventId: number
+  granted: number
+  confirmed: number
+  paymentFailed: number
+  ttlExpired: number
 }
 
 interface ApiResponse<T> {
@@ -87,4 +95,5 @@ export const api = {
   holdSeat: (seatId: number, token: string) =>
     postJson<Seat>(`/api/v1/seats/${seatId}/hold`, undefined, { 'X-Entry-Token': token }),
   pay: (seatId: number) => postJson<Payment>('/api/v1/payments', { seatId }),
+  getStats: (eventId: number) => request<EventStats>(`/api/v1/events/${eventId}/stats`),
 }

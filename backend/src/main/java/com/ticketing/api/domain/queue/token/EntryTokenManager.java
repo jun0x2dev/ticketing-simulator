@@ -11,6 +11,7 @@ import org.springframework.stereotype.Component;
  * 입장 허용 토큰을 Redis에 발급/조회한다. 키는 두 가지다.
  * {@code entry:grant:{requestId}} → 토큰 (요청당 1회 발급 보장, 멱등성 키 역할)
  * {@code entry:token:{token}} → eventId (좌석 선점 시 토큰 검증용)
+ * 재처리까지 실패한 요청은 {@code entry:failed:{requestId}}로 표시한다.
  * 두 키 모두 TTL이 있어서 만료된 토큰은 자동으로 무효화된다.
  */
 @Component
@@ -18,6 +19,7 @@ public class EntryTokenManager {
 
     private static final String GRANT_KEY_PREFIX = "entry:grant:";
     private static final String TOKEN_KEY_PREFIX = "entry:token:";
+    private static final String FAILED_KEY_PREFIX = "entry:failed:";
 
     private final StringRedisTemplate redisTemplate;
     private final Duration tokenTtl;
@@ -69,5 +71,24 @@ public class EntryTokenManager {
         }
         return Optional.ofNullable(redisTemplate.opsForValue().get(TOKEN_KEY_PREFIX + token))
                 .map(Long::valueOf);
+    }
+
+    /**
+     * 재처리까지 실패한 입장 요청을 표시한다. 토큰과 같은 TTL로 남겨 두어 클라이언트가 실패를 확인할 수 있게 한다.
+     *
+     * @param requestId 입장 요청 ID
+     */
+    public void markFailed(String requestId) {
+        redisTemplate.opsForValue().set(FAILED_KEY_PREFIX + requestId, "1", tokenTtl);
+    }
+
+    /**
+     * 입장 요청이 최종 실패로 표시되었는지 확인한다.
+     *
+     * @param requestId 입장 요청 ID
+     * @return 실패로 표시되었으면 true
+     */
+    public boolean isFailed(String requestId) {
+        return Boolean.TRUE.equals(redisTemplate.hasKey(FAILED_KEY_PREFIX + requestId));
     }
 }
