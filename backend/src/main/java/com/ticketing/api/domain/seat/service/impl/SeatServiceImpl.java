@@ -61,12 +61,23 @@ public class SeatServiceImpl implements SeatService {
     }
 
     @Override
-    @Transactional
-    public void confirmSeat(Long seatId) {
+    public SeatResponse getHeldSeat(Long seatId, String entryToken) {
         Seat seat = seatRepository.findById(seatId)
                 .orElseThrow(() -> new CustomException(ErrorCode.SEAT_NOT_FOUND));
+        seat.verifyHolder(entryToken);
+        return SeatResponse.from(seat);
+    }
+
+    @Override
+    @Transactional
+    public void confirmSeat(Long seatId, String entryToken) {
+        // 행을 잠근 뒤 선점자를 확인해야, 결제 중 TTL 복구나 다른 결제 요청이 먼저 상태를 바꾼 경우를 놓치지 않는다.
+        Seat seat = findSeatForUpdate(seatId);
+        seat.verifyHolder(entryToken);
         seat.confirm();
         publishStatusChanged(seat);
+        // 확정된 좌석은 더 이상 이 토큰의 선점이 아니므로, 같은 토큰으로 다음 좌석을 잡을 수 있게 표시를 지운다.
+        seatLockManager.clearHolder(entryToken);
         log.info("좌석 확정 완료 - seatId: {}", seatId);
     }
 
@@ -77,39 +88,47 @@ public class SeatServiceImpl implements SeatService {
         Long tokenEventId = entryTokenManager.findEventId(entryToken)
                 .orElseThrow(() -> new CustomException(ErrorCode.ENTRY_TOKEN_INVALID));
 
-        // 1. Redis 락 선점 시도 — 동시에 여러 요청이 들어와도 SET NX 1회 명령으로 단 하나만 성공한다.
+        // 1. 토큰 단위 표시를 좌석 락보다 먼저 건다. 대기열을 통과한 한 사람이 여러 좌석을 쓸어 담지 못하게 한다.
+        if (!seatLockManager.tryMarkHolder(entryToken, seatId, Seat.HOLD_TTL)) {
+            throw new CustomException(ErrorCode.SEAT_HOLD_LIMIT_EXCEEDED);
+        }
+
+        // 2. Redis 락 선점 시도 — 동시에 여러 요청이 들어와도 SET NX 1회 명령으로 단 하나만 성공한다.
         String lockToken = seatLockManager.tryLock(seatId, Seat.HOLD_TTL);
         if (lockToken == null) {
+            seatLockManager.clearHolder(entryToken);
             throw new CustomException(ErrorCode.SEAT_ALREADY_HELD);
         }
 
         try {
-            // 2. 락을 통과한 요청만 DB 상태를 HELD로 변경한다.
+            // 3. 락을 통과한 요청만 DB 상태를 HELD로 변경한다.
             Seat seat = seatRepository.findById(seatId)
                     .orElseThrow(() -> new CustomException(ErrorCode.SEAT_NOT_FOUND));
             // 다른 이벤트의 입장 토큰으로 이 이벤트의 좌석을 잡지 못하게 한다.
             if (!seat.getEvent().getId().equals(tokenEventId)) {
                 throw new CustomException(ErrorCode.ENTRY_TOKEN_INVALID);
             }
-            seat.hold();
+            seat.hold(entryToken);
             publishStatusChanged(seat);
             log.info("좌석 선점 완료 - seatId: {}", seatId);
             return SeatResponse.from(seat);
         } catch (RuntimeException e) {
-            // DB 반영이 실패하면 락을 바로 해제해서 다른 요청이 재시도할 수 있게 한다.
+            // DB 반영이 실패하면 락과 토큰 표시를 바로 해제해서 다시 시도할 수 있게 한다.
             seatLockManager.unlock(seatId, lockToken);
+            seatLockManager.clearHolder(entryToken);
             throw e;
         }
     }
 
     @Override
     @Transactional
-    public void releaseSeat(Long seatId) {
-        Seat seat = seatRepository.findById(seatId)
-                .orElseThrow(() -> new CustomException(ErrorCode.SEAT_NOT_FOUND));
+    public void releaseSeat(Long seatId, String entryToken) {
+        Seat seat = findSeatForUpdate(seatId);
+        seat.verifyHolder(entryToken);
         seat.release();
         publishStatusChanged(seat);
         seatLockManager.forceUnlock(seatId);
+        seatLockManager.clearHolder(entryToken);
         log.info("좌석 선점 해제 완료 - seatId: {}", seatId);
     }
 
@@ -133,6 +152,12 @@ public class SeatServiceImpl implements SeatService {
     @Transactional
     public int deleteSeatsOfEvents(List<Long> eventIds) {
         return seatRepository.deleteByEventIds(eventIds);
+    }
+
+    // 결제 확정/해제처럼 TTL 복구와 경쟁하는 변경은 행 잠금으로 읽어 순서를 보장한다.
+    private Seat findSeatForUpdate(Long seatId) {
+        return seatRepository.findByIdForUpdate(seatId)
+                .orElseThrow(() -> new CustomException(ErrorCode.SEAT_NOT_FOUND));
     }
 
     // 커밋 이후 WebSocket 브로드캐스트를 위해 상태 변경을 애플리케이션 이벤트로 알린다.

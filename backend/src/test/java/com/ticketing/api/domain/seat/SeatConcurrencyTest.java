@@ -18,6 +18,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.stream.IntStream;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -61,16 +62,15 @@ class SeatConcurrencyTest {
     @Autowired
     private EntryTokenManager entryTokenManager;
 
+    private Event event;
     private Long seatId;
-    private String entryToken;
 
     @BeforeEach
     void setUp() {
         // 다른 테스트가 남긴 좌석이 섞이지 않도록 매번 비운다
         seatRepository.deleteAll();
         eventRepository.deleteAll();
-        Event event = eventRepository.save(Event.create("콘서트 동시성 테스트", 1, LocalDateTime.now().plusDays(1)));
-        entryToken = entryTokenManager.issue(UUID.randomUUID().toString(), event.getId()).orElseThrow();
+        event = eventRepository.save(Event.create("콘서트 동시성 테스트", 1, LocalDateTime.now().plusDays(1)));
         Seat seat = seatRepository.save(Seat.create(event, 1));
         seatId = seat.getId();
     }
@@ -87,9 +87,13 @@ class SeatConcurrencyTest {
         CountDownLatch doneLatch = new CountDownLatch(requestCount);
         AtomicInteger successCount = new AtomicInteger(0);
         AtomicInteger conflictCount = new AtomicInteger(0);
+        // 요청마다 다른 사용자(토큰)로 보내서, 토큰당 1석 제한이 아니라 좌석 락이 경쟁을 가르는지 검증한다
+        List<String> entryTokens = IntStream.range(0, requestCount)
+                .mapToObj(i -> entryTokenManager.issue(UUID.randomUUID().toString(), event.getId()).orElseThrow())
+                .toList();
 
         // when
-        for (int i = 0; i < requestCount; i++) {
+        for (String entryToken : entryTokens) {
             executorService.submit(() -> {
                 readyLatch.countDown();
                 try {

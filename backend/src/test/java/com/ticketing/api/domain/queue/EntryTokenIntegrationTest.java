@@ -140,6 +140,24 @@ class EntryTokenIntegrationTest {
         assertThat(seatService.holdSeat(seatId, ownToken).id()).isEqualTo(seatId);
     }
 
+    // 토큰 하나로는 동시에 1석만 잡을 수 있고, 잡은 좌석을 해제하면 다른 좌석을 잡을 수 있어야 한다
+    @Test
+    @DisplayName("입장 토큰 하나로는 동시에 1석만 선점할 수 있다")
+    void holdSeat_secondSeatWithSameToken_throwsUntilReleased() {
+        // given
+        String token = entryTokenManager.issue(UUID.randomUUID().toString(), event.getId()).orElseThrow();
+        Long secondSeatId = seatRepository.save(Seat.create(event, 2)).getId();
+        seatService.holdSeat(seatId, token);
+
+        // when & then
+        assertThatThrownBy(() -> seatService.holdSeat(secondSeatId, token))
+                .isInstanceOf(CustomException.class)
+                .extracting(e -> ((CustomException) e).getErrorCode())
+                .isEqualTo(ErrorCode.SEAT_HOLD_LIMIT_EXCEEDED);
+        seatService.releaseSeat(seatId, token);
+        assertThat(seatService.holdSeat(secondSeatId, token).id()).isEqualTo(secondSeatId);
+    }
+
     // 최종 실패로 표시한 요청만 실패로 조회되고, 표시에는 만료 시간이 있어야 한다
     @Test
     @DisplayName("최종 실패 표시는 해당 요청에만 적용되고 만료 시간이 있다")

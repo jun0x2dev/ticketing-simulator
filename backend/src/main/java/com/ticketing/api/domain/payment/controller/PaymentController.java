@@ -8,6 +8,7 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -24,11 +25,14 @@ public class PaymentController {
     /**
      * 선점된 좌석에 대해 Mock 결제를 수행한다.
      *
-     * @param request 결제할 좌석 ID
+     * @param request    결제할 좌석 ID
+     * @param entryToken 좌석을 선점할 때 쓴 입장 토큰 (X-Entry-Token 헤더)
      * @return 결제 결과 (승인: SUCCESS, 거절: FAILED)
      */
     @PostMapping
-    public ApiResponse<PaymentResponse> pay(@Valid @RequestBody PaymentRequest request) {
-        return ApiResponse.success(paymentService.pay(request.seatId()));
+    public ApiResponse<PaymentResponse> pay(
+            @Valid @RequestBody PaymentRequest request,
+            @RequestHeader(value = "X-Entry-Token", required = false) String entryToken) {
+        return ApiResponse.success(paymentService.pay(request.seatId(), entryToken));
     }
 }

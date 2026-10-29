@@ -35,14 +35,25 @@ public interface SeatService {
     SeatResponse getSeat(Long seatId);
 
     /**
-     * 결제 완료로 선점된 좌석을 확정(CONFIRMED)한다.
+     * 요청자가 선점 중인 좌석을 조회한다. 결제 게이트웨이를 호출하기 전에 남의 좌석이나 만료된 좌석을 걸러낸다.
      *
-     * @param seatId 확정할 좌석 ID
+     * @param seatId     좌석 ID
+     * @param entryToken 요청자의 입장 토큰
+     * @return 좌석 정보 (HELD가 아니면 SEAT_NOT_HELD, 선점자가 다르면 SEAT_HOLDER_MISMATCH 예외)
      */
-    void confirmSeat(Long seatId);
+    SeatResponse getHeldSeat(Long seatId, String entryToken);
+
+    /**
+     * 결제 완료로 선점된 좌석을 확정(CONFIRMED)한다. 행 잠금 후 선점자를 다시 확인한다.
+     *
+     * @param seatId     확정할 좌석 ID
+     * @param entryToken 선점한 사용자의 입장 토큰
+     */
+    void confirmSeat(Long seatId, String entryToken);
 
     /**
      * 좌석을 선점한다. 입장 토큰을 먼저 검증하고, Redis 분산 락으로 동시 요청 중 하나만 성공하도록 보장한다.
+     * 토큰 하나로는 동시에 1석만 선점할 수 있다.
      *
      * @param seatId     선점할 좌석 ID
      * @param entryToken 대기열을 통과해 발급받은 입장 토큰 (좌석이 속한 이벤트의 토큰이어야 한다)
@@ -51,11 +62,12 @@ public interface SeatService {
     SeatResponse holdSeat(Long seatId, String entryToken);
 
     /**
-     * 선점된 좌석을 다시 선택 가능 상태로 되돌린다 (결제 실패/TTL 만료 시 사용).
+     * 선점자가 좌석을 다시 선택 가능 상태로 되돌린다 (결제 실패, 사용자의 선점 취소 시 사용).
      *
-     * @param seatId 해제할 좌석 ID
+     * @param seatId     해제할 좌석 ID
+     * @param entryToken 선점한 사용자의 입장 토큰
      */
-    void releaseSeat(Long seatId);
+    void releaseSeat(Long seatId, String entryToken);
 
     /**
      * 선점 후 결제 제한시간이 지난 HELD 좌석을 AVAILABLE로 복구한다.

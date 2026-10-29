@@ -4,6 +4,7 @@ import com.ticketing.api.domain.seat.entity.Seat;
 import jakarta.persistence.LockModeType;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Modifying;
@@ -24,8 +25,19 @@ public interface SeatRepository extends JpaRepository<Seat, Long> {
     List<Seat> findByEventIdOrderBySeatNumberAsc(Long eventId);
 
     /**
+     * 좌석 1석을 행 잠금(FOR UPDATE)으로 조회한다. 결제 확정/해제가 TTL 복구나 같은 좌석의 다른 결제와 겹쳐도,
+     * 먼저 잠근 쪽이 커밋할 때까지 기다린 뒤 최신 상태를 보고 판단하게 한다.
+     *
+     * @param seatId 좌석 ID
+     * @return 좌석 (없으면 빈 값)
+     */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select s from Seat s where s.id = :seatId")
+    Optional<Seat> findByIdForUpdate(@Param("seatId") Long seatId);
+
+    /**
      * 선점 시각이 기준 시각보다 이전인 HELD 좌석을 행 잠금(FOR UPDATE)으로 조회한다.
-     * 잠금 덕분에 조회~복구 사이에 결제 확정(CONFIRMED)이 끼어들어도 확정된 좌석을 되돌리지 않는다.
+     * 결제 확정도 같은 행을 잠그므로({@link #findByIdForUpdate}), 조회~복구 사이에 확정이 끼어들어 상태를 덮어쓰지 않는다.
      *
      * @param heldBefore 이 시각 이전에 선점된 좌석이 대상
      * @return 만료된 HELD 좌석 목록

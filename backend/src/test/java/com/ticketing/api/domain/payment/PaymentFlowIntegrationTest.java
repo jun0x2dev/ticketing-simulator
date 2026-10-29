@@ -1,7 +1,10 @@
 package com.ticketing.api.domain.payment;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -18,11 +21,17 @@ import com.ticketing.api.domain.payment.repository.PaymentRepository;
 import com.ticketing.api.domain.payment.service.PaymentService;
 import com.ticketing.api.domain.seat.entity.Seat;
 import com.ticketing.api.domain.seat.entity.SeatStatus;
+import com.ticketing.api.domain.seat.lock.SeatLockManager;
 import com.ticketing.api.domain.seat.repository.SeatRepository;
 import com.ticketing.api.domain.seat.service.SeatService;
 import com.ticketing.api.global.exception.CustomException;
+import com.ticketing.api.global.exception.ErrorCode;
 import java.time.LocalDateTime;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -78,6 +87,10 @@ class PaymentFlowIntegrationTest {
     @Autowired
     private EntryTokenManager entryTokenManager;
 
+    @Autowired
+    private SeatLockManager seatLockManager;
+
+    private Event event;
     private Long seatId;
     private String entryToken;
 
@@ -87,7 +100,7 @@ class PaymentFlowIntegrationTest {
         paymentRepository.deleteAll();
         seatRepository.deleteAll();
         eventRepository.deleteAll();
-        Event event = eventRepository.save(Event.create("콘서트 결제 테스트", 1, LocalDateTime.now().plusDays(1)));
+        event = eventRepository.save(Event.create("콘서트 결제 테스트", 1, LocalDateTime.now().plusDays(1)));
         entryToken = entryTokenManager.issue(UUID.randomUUID().toString(), event.getId()).orElseThrow();
         seatId = seatRepository.save(Seat.create(event, 1)).getId();
         seatService.holdSeat(seatId, entryToken);
@@ -101,7 +114,7 @@ class PaymentFlowIntegrationTest {
         when(paymentGateway.charge()).thenReturn(true);
 
         // when
-        PaymentResponse response = paymentService.pay(seatId);
+        PaymentResponse response = paymentService.pay(seatId, entryToken);
 
         // then
         assertThat(response.status()).isEqualTo(PaymentStatus.SUCCESS);
@@ -118,7 +131,7 @@ class PaymentFlowIntegrationTest {
         when(paymentGateway.charge()).thenReturn(false);
 
         // when
-        PaymentResponse response = paymentService.pay(seatId);
+        PaymentResponse response = paymentService.pay(seatId, entryToken);
 
         // then
         assertThat(response.status()).isEqualTo(PaymentStatus.FAILED);
@@ -133,10 +146,80 @@ class PaymentFlowIntegrationTest {
     void pay_alreadyConfirmed_throws() {
         // given
         when(paymentGateway.charge()).thenReturn(true);
-        paymentService.pay(seatId);
+        paymentService.pay(seatId, entryToken);
 
         // when & then
-        org.assertj.core.api.Assertions.assertThatThrownBy(() -> paymentService.pay(seatId))
+        assertThatThrownBy(() -> paymentService.pay(seatId, entryToken))
                 .isInstanceOf(CustomException.class);
+    }
+
+    // 다른 사람의 입장 토큰으로는 결제할 수 없고, 게이트웨이도 호출되지 않아야 한다
+    @Test
+    @DisplayName("선점자가 아닌 토큰으로 결제하면 SEAT_HOLDER_MISMATCH 예외가 발생하고 좌석은 HELD로 남는다")
+    void pay_notHolder_throws() {
+        // given
+        String otherToken = entryTokenManager.issue(UUID.randomUUID().toString(), event.getId()).orElseThrow();
+
+        // when & then
+        assertThatThrownBy(() -> paymentService.pay(seatId, otherToken))
+                .isInstanceOf(CustomException.class)
+                .extracting(e -> ((CustomException) e).getErrorCode())
+                .isEqualTo(ErrorCode.SEAT_HOLDER_MISMATCH);
+        verify(paymentGateway, never()).charge();
+        assertThat(seatRepository.findById(seatId).orElseThrow().getStatus()).isEqualTo(SeatStatus.HELD);
+    }
+
+    // 같은 좌석에 결제 요청이 동시에 몰려도 확정과 결제 기록은 정확히 1건이어야 한다
+    @Test
+    @DisplayName("같은 좌석에 동시에 결제해도 1건만 확정된다")
+    void pay_concurrentRequests_confirmedOnlyOnce() throws InterruptedException {
+        // given
+        when(paymentGateway.charge()).thenReturn(true);
+        int requestCount = 10;
+        ExecutorService executorService = Executors.newFixedThreadPool(requestCount);
+        CountDownLatch startLatch = new CountDownLatch(1);
+        CountDownLatch doneLatch = new CountDownLatch(requestCount);
+
+        // when
+        for (int i = 0; i < requestCount; i++) {
+            executorService.submit(() -> {
+                try {
+                    startLatch.await();
+                    paymentService.pay(seatId, entryToken);
+                } catch (CustomException e) {
+                    // 늦게 도착한 결제는 SEAT_NOT_HELD로 실패하는 것이 정상이다
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                } finally {
+                    doneLatch.countDown();
+                }
+            });
+        }
+        startLatch.countDown();
+        doneLatch.await(10, TimeUnit.SECONDS);
+        executorService.shutdown();
+
+        // then
+        assertThat(paymentRepository.count()).isEqualTo(1);
+        assertThat(seatRepository.findById(seatId).orElseThrow().getStatus()).isEqualTo(SeatStatus.CONFIRMED);
+        verify(seatEventProducer, times(1)).sendConfirmed(any(SeatConfirmedEvent.class));
+    }
+
+    // 결제 도중 TTL이 지나 다른 사람이 다시 잡은 좌석을 원래 선점자가 확정해서는 안 된다
+    @Test
+    @DisplayName("TTL 만료 후 다른 사용자가 다시 선점한 좌석은 원래 선점자가 확정할 수 없다")
+    void confirmSeat_afterExpiredAndReheld_throws() {
+        // given
+        seatService.releaseExpiredSeats(LocalDateTime.now().plusMinutes(1));
+        seatLockManager.forceUnlock(seatId); // 운영에서는 Redis TTL이 락을 스스로 해제한다
+        String otherToken = entryTokenManager.issue(UUID.randomUUID().toString(), event.getId()).orElseThrow();
+        seatService.holdSeat(seatId, otherToken);
+
+        // when & then
+        assertThatThrownBy(() -> seatService.confirmSeat(seatId, entryToken))
+                .isInstanceOf(CustomException.class)
+                .extracting(e -> ((CustomException) e).getErrorCode())
+                .isEqualTo(ErrorCode.SEAT_HOLDER_MISMATCH);
+        assertThat(seatRepository.findById(seatId).orElseThrow().getStatus()).isEqualTo(SeatStatus.HELD);
     }
 }
