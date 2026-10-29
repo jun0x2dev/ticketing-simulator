@@ -1,4 +1,5 @@
-import type { Concert, Event, Payment, Seat } from '../../shared/api/client'
+import { useEffect, useState } from 'react'
+import { api, type Concert, type Event, type EventStats, type Payment, type Seat } from '../../shared/api/client'
 import { BookingSteps } from '../../shared/ui/BookingSteps'
 import { formatBookingNumber, formatPrice } from '../../shared/ui/format'
 import { SeatSummary } from '../../shared/ui/SeatSummary'
@@ -16,7 +17,16 @@ interface Props {
 /** 예매 결과와 이 회차의 실시간 판매 현황을 보여준다. */
 export function ResultDashboardPage({ concert, event, seat, payment, onRetry, onHome }: Props) {
   const { seats } = useLiveSeats(event.id)
+  const [stats, setStats] = useState<EventStats | null>(null)
   const success = payment.status === 'SUCCESS'
+
+  // 통계는 Kafka Consumer가 비동기로 집계하므로 2초마다 다시 읽는다.
+  useEffect(() => {
+    const load = () => api.getStats(event.id).then(setStats).catch(() => undefined)
+    void load()
+    const timer = setInterval(() => void load(), 2000)
+    return () => clearInterval(timer)
+  }, [event.id])
 
   return (
     <section className="booking">
@@ -71,6 +81,24 @@ export function ResultDashboardPage({ concert, event, seat, payment, onRetry, on
       <div className="live-status">
         <h2 className="section-title">이 회차 실시간 판매 현황</h2>
         <SeatSummary seats={seats} />
+        <dl className="stats-grid" aria-label="이 회차 예매 통계">
+          <div>
+            <dt>입장 허용</dt>
+            <dd>{stats?.granted ?? '-'}</dd>
+          </div>
+          <div>
+            <dt>결제 완료</dt>
+            <dd>{stats?.confirmed ?? '-'}</dd>
+          </div>
+          <div>
+            <dt>결제 실패</dt>
+            <dd>{stats?.paymentFailed ?? '-'}</dd>
+          </div>
+          <div>
+            <dt>시간 초과 해제</dt>
+            <dd>{stats?.ttlExpired ?? '-'}</dd>
+          </div>
+        </dl>
       </div>
     </section>
   )

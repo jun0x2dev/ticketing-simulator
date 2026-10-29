@@ -30,7 +30,8 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 @EmbeddedKafka(partitions = 1, topics = {"entry.requested"})
 @TestPropertySource(properties = {
         "spring.kafka.bootstrap-servers=${spring.embedded.kafka.brokers}",
-        "queue.worker.tps=1000"
+        "queue.worker.tps=1000",
+        "queue.dlt.redrive-delay-ms=0"
 })
 class EntryRequestRetryIntegrationTest {
 
@@ -59,6 +60,8 @@ class EntryRequestRetryIntegrationTest {
         assertThat(arrived).isTrue();
         assertThat(dltListener.received.requestId()).isEqualTo(event.requestId());
         verify(entryService, timeout(1000).times(4)).grantEntry(any(EntryRequestedEvent.class));
+        // DLT Consumer가 같은 메시지를 받아 재처리(재투입 또는 최종 실패)를 맡아야 한다
+        verify(entryService, timeout(10000)).handleDeadLetter(any(EntryRequestedEvent.class));
     }
 
     @TestConfiguration

@@ -26,6 +26,14 @@ public interface EntryService {
     void grantEntry(EntryRequestedEvent event);
 
     /**
+     * 재시도 끝에 DLT로 빠진 입장 요청을 처리한다. 재투입 횟수가 남아 있으면 원래 토픽으로 다시 보내고,
+     * 남아 있지 않으면 대기 줄에서 빼고 최종 실패로 표시한다.
+     *
+     * @param event DLT에서 꺼낸 입장 요청 이벤트
+     */
+    void handleDeadLetter(EntryRequestedEvent event);
+
+    /**
      * 대기열을 거치지 않고 즉시 입장 토큰을 발급한다. 대기열 적용 전/후 부하 비교용 기준선(baseline) 시나리오에서만 쓴다.
      *
      * @param eventId 입장할 이벤트 ID (없으면 EVENT_NOT_FOUND 예외)
@@ -38,7 +46,8 @@ public interface EntryService {
      *
      * @param eventId   이벤트 ID (이벤트별 대기열에서 순번을 찾는다)
      * @param requestId 입장 요청 ID
-     * @return 대기 중이면 순번/예상 대기 시간을 포함한 WAITING, 허용되었으면 토큰을 포함한 GRANTED
+     * @return 대기 중이면 순번/예상 대기 시간을 포함한 WAITING, 허용되었으면 토큰을 포함한 GRANTED,
+     *         재처리까지 실패했으면 FAILED
      */
     EntryStatusResponse getEntryStatus(Long eventId, String requestId);
 }

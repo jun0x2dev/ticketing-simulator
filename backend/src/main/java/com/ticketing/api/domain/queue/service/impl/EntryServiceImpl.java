@@ -10,6 +10,7 @@ import com.ticketing.api.domain.queue.producer.EntryRequestProducer;
 import com.ticketing.api.domain.queue.service.EntryService;
 import com.ticketing.api.domain.queue.token.EntryTokenManager;
 import com.ticketing.api.domain.queue.waiting.WaitingLineManager;
+import java.util.Optional;
 import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -25,6 +26,9 @@ import org.springframework.transaction.annotation.Transactional;
 public class EntryServiceImpl implements EntryService {
 
     private static final Logger log = LoggerFactory.getLogger(EntryServiceImpl.class);
+
+    // DLT에서 원래 토픽으로 다시 보내는 최대 횟수. 일시적 장애는 한 번이면 복구되고, 계속 실패하는 요청이 무한히 돌지 않게 막는다.
+    static final int MAX_REDRIVE = 1;
 
     private final EventService eventService;
     private final EntryRequestProducer entryRequestProducer;
@@ -72,6 +76,19 @@ public class EntryServiceImpl implements EntryService {
     }
 
     @Override
+    public void handleDeadLetter(EntryRequestedEvent event) {
+        if (event.redriveCount() < MAX_REDRIVE) {
+            entryRequestProducer.send(event.redriven());
+            log.warn("DLT 입장 요청 재투입 - requestId: {}, redriveCount: {}", event.requestId(), event.redriveCount() + 1);
+            return;
+        }
+        // 재투입까지 실패한 요청은 줄에서 빼고 실패로 표시해, 클라이언트가 순번이 멈춘 채 기다리지 않게 한다.
+        waitingLineManager.leave(event.eventId(), event.requestId());
+        entryTokenManager.markFailed(event.requestId());
+        log.error("입장 요청 최종 실패 - requestId: {}, eventId: {}", event.requestId(), event.eventId());
+    }
+
+    @Override
     public EntryStatusResponse grantEntryDirectly(Long eventId) {
         eventService.getEvent(eventId);
         String requestId = UUID.randomUUID().toString();
@@ -81,12 +98,17 @@ public class EntryServiceImpl implements EntryService {
 
     @Override
     public EntryStatusResponse getEntryStatus(Long eventId, String requestId) {
-        return entryTokenManager.findToken(requestId)
-                .map(token -> EntryStatusResponse.granted(requestId, token))
-                .orElseGet(() -> waitingLineManager.findPosition(eventId, requestId)
-                        // 큐 워커가 초당 workerTps명씩 입장시키므로 내 순번까지 걸리는 시간을 올림으로 계산한다.
-                        .map(position -> EntryStatusResponse.waiting(requestId, position,
-                                (position.position() + workerTps - 1) / workerTps))
-                        .orElseGet(() -> EntryStatusResponse.waiting(requestId)));
+        Optional<String> token = entryTokenManager.findToken(requestId);
+        if (token.isPresent()) {
+            return EntryStatusResponse.granted(requestId, token.get());
+        }
+        if (entryTokenManager.isFailed(requestId)) {
+            return EntryStatusResponse.failed(requestId);
+        }
+        return waitingLineManager.findPosition(eventId, requestId)
+                // 큐 워커가 초당 workerTps명씩 입장시키므로 내 순번까지 걸리는 시간을 올림으로 계산한다.
+                .map(position -> EntryStatusResponse.waiting(requestId, position,
+                        (position.position() + workerTps - 1) / workerTps))
+                .orElseGet(() -> EntryStatusResponse.waiting(requestId));
     }
 }

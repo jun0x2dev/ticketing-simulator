@@ -37,6 +37,17 @@ export function WaitingRoomPage({ concert, event, onGranted }: Props) {
       .catch((e: Error) => setError(e.message))
   }, [event.id])
 
+  // 입장 처리가 최종 실패하면 새 요청으로 줄 맨 뒤에 다시 선다.
+  const retry = () => {
+    setStatus(null)
+    setInitialPosition(null)
+    setRequestId(null)
+    api
+      .requestEntry(event.id)
+      .then((response) => setRequestId(response.requestId))
+      .catch((e: Error) => setError(e.message))
+  }
+
   const checkStatus = useCallback(async () => {
     if (!requestId || granted.current) return
     const next = await api.getEntryStatus(event.id, requestId)
@@ -51,11 +62,13 @@ export function WaitingRoomPage({ concert, event, onGranted }: Props) {
 
   useStompSubscription(requestId ? `/topic/entries/${requestId}` : null, () => void checkStatus())
 
+  const failed = status?.status === 'FAILED'
+
   useEffect(() => {
-    if (!requestId) return
+    if (!requestId || failed) return
     const timer = setInterval(() => void checkStatus(), POLL_INTERVAL_MS)
     return () => clearInterval(timer)
-  }, [requestId, checkStatus])
+  }, [requestId, checkStatus, failed])
 
   const position = status?.position ?? null
   const progress = position !== null && initialPosition ? Math.round((1 - (position - 1) / initialPosition) * 100) : 0
@@ -69,6 +82,15 @@ export function WaitingRoomPage({ concert, event, onGranted }: Props) {
           <p className="alert" role="alert">
             {error}
           </p>
+        ) : failed ? (
+          <>
+            <p className="alert" role="alert">
+              접속이 많아 입장 처리에 실패했습니다. 다시 줄을 서 주세요.
+            </p>
+            <button type="button" className="btn btn-primary btn-large" onClick={retry}>
+              다시 줄 서기
+            </button>
+          </>
         ) : (
           <>
             <div className="waiting-time" aria-live="polite">

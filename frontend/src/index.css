@@ -880,6 +880,30 @@ summary:focus-visible {
   margin: 32px auto 0;
 }
 
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.stats-grid div {
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.stats-grid dt {
+  font-size: 0.78rem;
+  color: var(--sub);
+}
+
+.stats-grid dd {
+  font-size: 1.2rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
 @media (max-width: 860px) {
   .booking-layout {
     grid-template-columns: 1fr;
@@ -930,6 +954,10 @@ summary:focus-visible {
 
   .method-list {
     grid-template-columns: 1fr;
+  }
+
+  .stats-grid {
+    grid-template-columns: repeat(2, 1fr);
   }
 
   .waiting-panel,
