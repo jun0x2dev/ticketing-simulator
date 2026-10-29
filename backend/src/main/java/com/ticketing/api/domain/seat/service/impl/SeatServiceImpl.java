@@ -22,6 +22,8 @@ import org.slf4j.LoggerFactory;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 /**
  * SeatService 구현체. 좌석 선점은 Redis 분산 락으로 동시성을 제어한 뒤,
@@ -81,7 +83,8 @@ public class SeatServiceImpl implements SeatService {
         seat.confirm();
         publishStatusChanged(seat);
         // 확정된 좌석은 더 이상 이 토큰의 선점이 아니므로, 같은 토큰으로 다음 좌석을 잡을 수 있게 표시를 지운다.
-        seatLockManager.clearHolder(entryToken);
+        // 커밋 전에 지우면 커밋이 실패했을 때 HELD 좌석을 가진 채 다른 좌석을 또 잡을 수 있어 커밋 뒤에 지운다.
+        afterCommit(() -> seatLockManager.clearHolder(entryToken));
         log.info("좌석 확정 완료 - seatId: {}", seatId);
     }
 
@@ -104,24 +107,29 @@ public class SeatServiceImpl implements SeatService {
             throw new CustomException(ErrorCode.SEAT_ALREADY_HELD);
         }
 
-        try {
-            // 3. 락을 통과한 요청만 DB 상태를 HELD로 변경한다.
-            Seat seat = seatRepository.findById(seatId)
-                    .orElseThrow(() -> new CustomException(ErrorCode.SEAT_NOT_FOUND));
-            // 다른 이벤트의 입장 토큰으로 이 이벤트의 좌석을 잡지 못하게 한다.
-            if (!seat.getEvent().getId().equals(tokenEventId)) {
-                throw new CustomException(ErrorCode.ENTRY_TOKEN_INVALID);
+        // DB 반영이 커밋되지 않으면(아래 검증 예외든 커밋 단계의 실패든) 락과 토큰 표시를 바로 풀어,
+        // 좌석과 사용자가 5분 동안 묶이지 않고 다시 시도할 수 있게 한다.
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCompletion(int status) {
+                if (status != STATUS_COMMITTED) {
+                    seatLockManager.unlock(seatId, lockToken);
+                    seatLockManager.clearHolder(entryToken);
+                }
             }
-            seat.hold(entryToken);
-            publishStatusChanged(seat);
-            log.info("좌석 선점 완료 - seatId: {}", seatId);
-            return SeatResponse.from(seat);
-        } catch (RuntimeException e) {
-            // DB 반영이 실패하면 락과 토큰 표시를 바로 해제해서 다시 시도할 수 있게 한다.
-            seatLockManager.unlock(seatId, lockToken);
-            seatLockManager.clearHolder(entryToken);
-            throw e;
+        });
+
+        // 3. 락을 통과한 요청만 DB 상태를 HELD로 변경한다.
+        Seat seat = seatRepository.findById(seatId)
+                .orElseThrow(() -> new CustomException(ErrorCode.SEAT_NOT_FOUND));
+        // 다른 이벤트의 입장 토큰으로 이 이벤트의 좌석을 잡지 못하게 한다.
+        if (!seat.getEvent().getId().equals(tokenEventId)) {
+            throw new CustomException(ErrorCode.ENTRY_TOKEN_INVALID);
         }
+        seat.hold(entryToken);
+        publishStatusChanged(seat);
+        log.info("좌석 선점 완료 - seatId: {}", seatId);
+        return SeatResponse.from(seat);
     }
 
     @Override
@@ -131,8 +139,11 @@ public class SeatServiceImpl implements SeatService {
         seat.verifyHolder(entryToken);
         seat.release();
         publishStatusChanged(seat);
-        seatLockManager.forceUnlock(seatId);
-        seatLockManager.clearHolder(entryToken);
+        // 커밋 전에 락을 풀면, 커밋이 실패해 HELD로 남은 좌석을 다른 요청이 락만 잡고 들어올 수 있어 커밋 뒤에 푼다.
+        afterCommit(() -> {
+            seatLockManager.forceUnlock(seatId);
+            seatLockManager.clearHolder(entryToken);
+        });
         log.info("좌석 선점 해제 완료 - seatId: {}", seatId);
     }
 
@@ -160,6 +171,16 @@ public class SeatServiceImpl implements SeatService {
     @Transactional
     public int deleteSeatsOfEvents(List<Long> eventIds) {
         return seatRepository.deleteByEventIds(eventIds);
+    }
+
+    // Redis 정리는 DB 변경이 실제로 커밋된 뒤에만 해야 두 저장소의 상태가 어긋나지 않는다.
+    private void afterCommit(Runnable action) {
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                action.run();
+            }
+        });
     }
 
     // 결제 확정/해제처럼 TTL 복구와 경쟁하는 변경은 행 잠금으로 읽어 순서를 보장한다.
