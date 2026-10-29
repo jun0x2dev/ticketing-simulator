@@ -30,11 +30,12 @@ export function SimulationSetupPage({ onCreated }: { onCreated: (event: Event) =
   }
 
   return (
-    <section className="card">
-      <h2>시뮬레이션 설정</h2>
+    <section className="page page-setup">
+      <h1 className="title">티켓 오픈을 준비하세요</h1>
+      <p className="lead">공연과 좌석 수를 정하면 대기열에 줄을 서는 관객 한 명으로 예매를 체험합니다.</p>
       <form className="form" onSubmit={submit}>
         <label>
-          이벤트명
+          공연 이름
           <input value={name} onChange={(e) => setName(e.target.value)} required />
         </label>
         <label>
@@ -45,13 +46,17 @@ export function SimulationSetupPage({ onCreated }: { onCreated: (event: Event) =
           오픈 시각
           <input type="datetime-local" value={openAt} onChange={(e) => setOpenAt(e.target.value)} required />
         </label>
-        {error && <p className="error">{error}</p>}
+        {error && (
+          <p className="error" role="alert">
+            {error}
+          </p>
+        )}
         <button type="submit" disabled={submitting}>
-          {submitting ? '생성 중…' : '시뮬레이션 시작'}
+          {submitting ? '공연 만드는 중…' : '대기열에 줄 서기'}
         </button>
       </form>
       <p className="hint">
-        가상 유저 부하는 <code>load-generator</code>의 k6 스크립트로 함께 발생시킬 수 있습니다.
+        다른 관객이 몰리는 상황은 <code>load-generator</code>의 k6 스크립트로 함께 재현할 수 있습니다.
       </p>
     </section>
   )
