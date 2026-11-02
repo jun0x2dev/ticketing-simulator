@@ -132,6 +132,7 @@ k6 시나리오용 `POST /api/v1/events`는 남겨 두되 좌석 수 상한은 5
 | entry.granted | Queue Worker | WebSocket 릴레이, 통계 | 입장 허용 알림 |
 | seat.confirmed | 결제 (outbox 경유) | 통계 | 결제 완료 좌석 |
 | seat.released | 결제, TTL 스케줄러 (outbox 경유) | 통계 | 결제 실패/TTL 만료 좌석 |
+| entry.granted.DLT, seat.confirmed.DLT, seat.released.DLT | Kafka 에러 핸들러 | 통계 DLT Consumer | 집계 실패 메시지를 5초 뒤 재집계 (멱등) |
 
 `seat.*`는 DB 변경과 같은 트랜잭션에 `outbox_events`로 기록한 뒤 발행기가 보낸다 (`docs/domain/outbox`).
 

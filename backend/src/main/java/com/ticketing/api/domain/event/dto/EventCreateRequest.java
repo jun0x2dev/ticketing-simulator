@@ -5,17 +5,18 @@ import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
-import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
 
 /**
  * 이벤트 생성 요청 DTO.
  * openAt은 항상 미래 시각이어야 한다(이미 지난 오픈 시각으로 생성하는 것을 방지).
+ * 클라이언트와 서버의 시간대가 달라도 같은 순간을 가리키도록 오프셋이 있는 시각(예: {@code 2026-11-02T10:00:00Z})으로 받는다.
  * 좌석 수는 로컬 PC에서 감당할 수 있는 규모로 상한을 둔다(좌석 행 생성과 전체 좌석 조회 부하 제한).
  */
 public record EventCreateRequest(
         @NotBlank String name,
         @Min(1) @Max(EventCreateRequest.MAX_SEAT_COUNT) int seatCount,
-        @NotNull @Future LocalDateTime openAt
+        @NotNull @Future OffsetDateTime openAt
 ) {
 
     public static final int MAX_SEAT_COUNT = 500;

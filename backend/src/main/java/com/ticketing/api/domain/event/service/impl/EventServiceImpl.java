@@ -9,6 +9,7 @@ import com.ticketing.api.domain.seat.service.SeatService;
 import com.ticketing.api.global.exception.CustomException;
 import com.ticketing.api.global.exception.ErrorCode;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
@@ -34,7 +35,9 @@ public class EventServiceImpl implements EventService {
     @Override
     @Transactional
     public EventResponse createEvent(EventCreateRequest request) {
-        Event event = Event.create(request.name(), request.seatCount(), request.openAt());
+        // 오픈 시각 비교와 회차 정리는 서버 시각(LocalDateTime.now())으로 하므로, 요청 시각을 서버 시간대로 바꿔 저장한다.
+        LocalDateTime openAt = request.openAt().atZoneSameInstant(ZoneId.systemDefault()).toLocalDateTime();
+        Event event = Event.create(request.name(), request.seatCount(), openAt);
         Event saved = eventRepository.save(event);
         // 이벤트 생성 시 좌석 수만큼 좌석을 함께 초기화한다 (1~seatCount번)
         seatService.initializeSeats(saved, saved.getSeatCount());

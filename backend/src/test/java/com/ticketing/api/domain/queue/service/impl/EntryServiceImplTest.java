@@ -3,6 +3,7 @@ package com.ticketing.api.domain.queue.service.impl;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.doThrow;
@@ -12,6 +13,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.ticketing.api.domain.event.dto.EventResponse;
 import com.ticketing.api.domain.event.service.EventService;
 import com.ticketing.api.domain.queue.dto.EntryGrantedEvent;
 import com.ticketing.api.domain.queue.dto.EntryRequestResponse;
@@ -25,6 +27,7 @@ import com.ticketing.api.domain.queue.waiting.WaitingLineManager;
 import com.ticketing.api.domain.queue.waiting.WaitingPosition;
 import com.ticketing.api.global.exception.CustomException;
 import com.ticketing.api.global.exception.ErrorCode;
+import java.time.LocalDateTime;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import org.junit.jupiter.api.BeforeEach;
@@ -66,6 +69,8 @@ class EntryServiceImplTest {
                 entryTokenManager, waitingLineManager, 20);
         // 기본은 발행 성공. 발행을 쓰지 않는 테스트도 있어 lenient로 둔다
         lenient().doReturn(CompletableFuture.completedFuture(null)).when(entryRequestProducer).send(any(EntryRequestedEvent.class));
+        // 기본은 이미 오픈된 회차. 오픈 전 회차를 다루는 테스트만 따로 바꾼다
+        lenient().when(eventService.getEvent(anyLong())).thenReturn(event(LocalDateTime.now().minusMinutes(1)));
     }
 
     // 존재하는 이벤트에 입장 요청을 하면 대기열에 적재되고 요청 ID가 반환되는지 확인
@@ -146,6 +151,37 @@ class EntryServiceImplTest {
         // when & then
         assertThatThrownBy(() -> entryService.requestEntry(99L)).isInstanceOf(CustomException.class);
         verify(entryRequestProducer, never()).send(any(EntryRequestedEvent.class));
+    }
+
+    // 오픈 전 입장 요청은 줄에 서지도, 대기열에 적재되지도 않아야 한다
+    @Test
+    @DisplayName("오픈 시각 전 입장 요청은 EVENT_NOT_OPENED로 거절하고 줄에 세우거나 발행하지 않는다")
+    void requestEntry_beforeOpen_rejected() {
+        // given
+        when(eventService.getEvent(1L)).thenReturn(event(LocalDateTime.now().plusMinutes(1)));
+
+        // when & then
+        assertThatThrownBy(() -> entryService.requestEntry(1L))
+                .isInstanceOf(CustomException.class)
+                .extracting(e -> ((CustomException) e).getErrorCode())
+                .isEqualTo(ErrorCode.EVENT_NOT_OPENED);
+        verify(waitingLineManager, never()).join(any(), any());
+        verify(entryRequestProducer, never()).send(any(EntryRequestedEvent.class));
+    }
+
+    // 대기열을 거치지 않는 직접 입장도 오픈 전에는 토큰을 받을 수 없어야 한다
+    @Test
+    @DisplayName("오픈 시각 전 직접 입장은 EVENT_NOT_OPENED로 거절하고 토큰을 발급하지 않는다")
+    void grantEntryDirectly_beforeOpen_rejected() {
+        // given
+        when(eventService.getEvent(1L)).thenReturn(event(LocalDateTime.now().plusMinutes(1)));
+
+        // when & then
+        assertThatThrownBy(() -> entryService.grantEntryDirectly(1L))
+                .isInstanceOf(CustomException.class)
+                .extracting(e -> ((CustomException) e).getErrorCode())
+                .isEqualTo(ErrorCode.EVENT_NOT_OPENED);
+        verify(entryTokenManager, never()).issue(any(), any());
     }
 
     // 처음 처리하는 입장 요청은 토큰이 발급되고 entry.granted가 발행되어야 한다
@@ -312,5 +348,9 @@ class EntryServiceImplTest {
         assertThat(waiting.status()).isEqualTo(EntryStatus.WAITING);
         assertThat(waiting.position()).isNull();
         assertThat(waiting.estimatedSeconds()).isNull();
+    }
+
+    private static EventResponse event(LocalDateTime openAt) {
+        return new EventResponse(1L, "공연", 1, openAt);
     }
 }

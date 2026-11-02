@@ -33,22 +33,22 @@ public class EntryRequestDltConsumer {
      * 메시지 도착 시각 기준으로 남은 시간만큼만 기다린다(밀려 있던 메시지는 기다리지 않는다).
      *
      * @param record DLT 메시지
+     * @throws InterruptedException 종료 중 대기가 끊긴 경우. 정상 반환하면 처리하지 않은 메시지의 오프셋이 커밋되어 사라지므로,
+     *                              예외로 끝내 커밋하지 않고 재시작 후 다시 받는다
      */
     @KafkaListener(topics = KafkaTopicConfig.ENTRY_REQUESTED_DLT, groupId = "${spring.kafka.consumer.group-id}-dlt")
-    public void consume(ConsumerRecord<String, EntryRequestedEvent> record) {
+    public void consume(ConsumerRecord<String, EntryRequestedEvent> record) throws InterruptedException {
         // 값이 없는 메시지(tombstone)는 처리할 요청이 없으므로 건너뛴다. 아래 로그에서 requestId를 꺼내다 실패하지 않게 먼저 거른다.
         if (record.value() == null) {
             log.error("DLT 입장 요청 값 없음, 건너뜀 - partition: {}, offset: {}", record.partition(), record.offset());
             return;
         }
         long waitMillis = record.timestamp() + redriveDelayMillis - System.currentTimeMillis();
+        if (waitMillis > 0) {
+            Thread.sleep(waitMillis);
+        }
         try {
-            if (waitMillis > 0) {
-                Thread.sleep(waitMillis);
-            }
             entryService.handleDeadLetter(record.value());
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
         } catch (RuntimeException e) {
             log.error("DLT 입장 요청 처리 실패 - requestId: {}", record.value().requestId(), e);
         }

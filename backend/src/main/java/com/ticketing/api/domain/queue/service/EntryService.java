@@ -13,7 +13,7 @@ public interface EntryService {
      * 입장 요청을 접수해서 대기 순번을 매기고 대기열(entry.requested)에 적재한다.
      * 발행 결과를 기다리지 않고 응답하며, 발행이 실패하면 줄에서 빼고 최종 실패(FAILED)로 표시한다.
      *
-     * @param eventId 입장할 이벤트 ID (없으면 EVENT_NOT_FOUND 예외)
+     * @param eventId 입장할 이벤트 ID (없으면 EVENT_NOT_FOUND, 오픈 시각 전이면 EVENT_NOT_OPENED 예외)
      * @return 접수된 요청 ID
      */
     EntryRequestResponse requestEntry(Long eventId);
@@ -37,7 +37,7 @@ public interface EntryService {
     /**
      * 대기열을 거치지 않고 즉시 입장 토큰을 발급한다. 대기열 적용 전/후 부하 비교용 기준선(baseline) 시나리오에서만 쓴다.
      *
-     * @param eventId 입장할 이벤트 ID (없으면 EVENT_NOT_FOUND 예외)
+     * @param eventId 입장할 이벤트 ID (없으면 EVENT_NOT_FOUND, 오픈 시각 전이면 EVENT_NOT_OPENED 예외)
      * @return 즉시 허용(GRANTED)된 상태와 토큰
      */
     EntryStatusResponse grantEntryDirectly(Long eventId);
