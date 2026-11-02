@@ -142,6 +142,7 @@ WebSocket(STOMP) 엔드포인트는 `/ws`이고, `/topic/entries/{requestId}`(�
 |---|---|---|
 | `entry.requested` | 입장 요청 접수 | Queue Worker |
 | `entry.requested.DLT` | 재시도 소진 | DLT 재처리 Consumer |
+| `entry.granted.DLT`, `seat.*.DLT` | 통계/릴레이 재시도 소진 | 통계 DLT 재집계 Consumer |
 | `entry.granted` | 입장 허용 | WebSocket 릴레이, 통계 |
 | `seat.confirmed` | 결제 완료 | 통계 |
 | `seat.released` | 결제 실패 / 시간 초과 해제 | 통계 |
@@ -178,4 +179,4 @@ load-generator    k6 시나리오 (direct.js / queue.js)
 - 배포 환경 구성 (DESIGN 9단계, 추후 결정)
 - 사용자 인증 없음: 입장 토큰은 requestId를 아는 사람이 조회할 수 있다
 - 기본 프로필이 `local`이라 대기열 우회 API(`entries/direct`)가 열려 있다. 배포 시에는 `local`/`bench`가 아닌 프로필로 실행해야 한다
-- 통계/릴레이 Consumer의 DLT는 보관만 하고 재처리하지 않는다
+- 통계 DLT 재집계까지 실패한 메시지는 error 로그와 DLT 원본으로 수동 처리한다. WebSocket 릴레이 실패는 대기 화면 폴링(1초)으로 대체하고 재처리하지 않는다

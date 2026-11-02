@@ -23,3 +23,12 @@ Kafka 이벤트를 구독해 회차(event)별 예매 통계를 집계하고 조�
 | `seat.released` | 사유에 따라 `paymentFailed` / `ttlExpired` 집계 |
 
 처리 실패 시 공통 에러 핸들러가 재시도 후 각 토픽의 `.DLT`로 보낸다.
+
+| 토픽 | 역할 |
+|---|---|
+| `entry.granted.DLT`, `seat.confirmed.DLT`, `seat.released.DLT` | `EventStatsDltConsumer`(그룹 `ticketing-stats-dlt`)가 메시지 시각 5초 뒤(`stats.dlt.retry-delay-ms`) 같은 기록 메서드로 다시 집계 |
+
+- 멱등 키 덕분에 이미 집계된 메시지를 다시 넣어도 두 번 세지 않는다. `entry.granted.DLT`에는 WebSocket 릴레이 실패로 온 메시지도 섞이는데, 이 경우 재집계는 "이미 집계된 메시지"로 끝난다.
+- 재집계도 실패하면 공통 에러 핸들러가 3회 재시도한 뒤, DLT를 다시 DLT로 보내지 않고 topic/partition/offset과 함께 error 로그를 남긴다. 원본은 DLT에 남아 있어 그 오프셋으로 찾아 수동 처리할 수 있다.
+- 종료 중 대기가 끊기면 `InterruptedException`으로 끝내 오프셋을 커밋하지 않는다. 재시작 후 같은 메시지를 다시 받는다(입장 요청 DLT Consumer도 같다).
+- WebSocket 릴레이 실패는 재처리하지 않는다. 대기 화면이 1초마다 상태를 폴링하므로 알림이 빠져도 입장은 늦어야 1초 안에 반영되고, 릴레이 Consumer는 인스턴스마다 고유 그룹이라 DLT를 한 곳에서 다시 보내도 그 사용자가 붙은 인스턴스에 닿는다는 보장이 없다.
