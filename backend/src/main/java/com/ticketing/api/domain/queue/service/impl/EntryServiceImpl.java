@@ -10,6 +10,9 @@ import com.ticketing.api.domain.queue.producer.EntryRequestProducer;
 import com.ticketing.api.domain.queue.service.EntryService;
 import com.ticketing.api.domain.queue.token.EntryTokenManager;
 import com.ticketing.api.domain.queue.waiting.WaitingLineManager;
+import com.ticketing.api.global.exception.CustomException;
+import com.ticketing.api.global.exception.ErrorCode;
+import java.time.LocalDateTime;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
@@ -54,7 +57,7 @@ public class EntryServiceImpl implements EntryService {
 
     @Override
     public EntryRequestResponse requestEntry(Long eventId) {
-        eventService.getEvent(eventId);
+        verifyOpened(eventId);
         EntryRequestedEvent event = EntryRequestedEvent.of(eventId);
         // Kafka 발행보다 먼저 줄에 세워야, Consumer가 먼저 처리해 버려 줄에 영원히 남는 요청이 생기지 않는다.
         waitingLineManager.join(eventId, event.requestId());
@@ -86,6 +89,13 @@ public class EntryServiceImpl implements EntryService {
         failRequest(event, null);
     }
 
+    // 오픈 전 요청은 줄에 세우지도 토큰을 주지도 않는다. 클라이언트 시계는 조작할 수 있으므로 서버 시각으로만 판단한다.
+    private void verifyOpened(Long eventId) {
+        if (eventService.getEvent(eventId).openAt().isAfter(LocalDateTime.now())) {
+            throw new CustomException(ErrorCode.EVENT_NOT_OPENED);
+        }
+    }
+
     // 접수 응답을 늦추지 않도록 발행 결과를 기다리지 않는다. 대신 발행이 실패하면 줄에서 빼고 실패로 표시해,
     // 줄에는 있지만 Kafka에는 없는 요청이 순번이 멈춘 채 남지 않게 한다 (대기 화면은 FAILED를 받아 다시 줄 서기를 안내).
     private void publish(EntryRequestedEvent event) {
@@ -112,7 +122,7 @@ public class EntryServiceImpl implements EntryService {
 
     @Override
     public EntryStatusResponse grantEntryDirectly(Long eventId) {
-        eventService.getEvent(eventId);
+        verifyOpened(eventId);
         String requestId = UUID.randomUUID().toString();
         String token = entryTokenManager.issue(requestId, eventId).orElseThrow();
         return EntryStatusResponse.granted(requestId, token);

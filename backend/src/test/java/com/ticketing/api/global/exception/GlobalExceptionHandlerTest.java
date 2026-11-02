@@ -45,7 +45,18 @@ class GlobalExceptionHandlerTest {
     void seatCountOverLimit_returnsBadRequest() throws Exception {
         mockMvc.perform(post("/api/v1/events")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"name\":\"공연\",\"seatCount\":5000,\"openAt\":\"2099-01-01T00:00:00\"}"))
+                        .content("{\"name\":\"공연\",\"seatCount\":5000,\"openAt\":\"2099-01-01T00:00:00+09:00\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("INVALID_REQUEST"));
+    }
+
+    // 시간대 없는 오픈 시각은 클라이언트와 서버가 다른 순간으로 해석할 수 있으므로 400이어야 한다
+    @Test
+    @DisplayName("오프셋이 없는 오픈 시각은 400 INVALID_REQUEST로 응답한다")
+    void openAtWithoutOffset_returnsBadRequest() throws Exception {
+        mockMvc.perform(post("/api/v1/events")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"공연\",\"seatCount\":10,\"openAt\":\"2099-01-01T00:00:00\"}"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value("INVALID_REQUEST"));
     }
