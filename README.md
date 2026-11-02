@@ -127,14 +127,14 @@ cd backend
 | GET | `/api/v1/events/{eventId}` | 회차 조회 |
 | POST | `/api/v1/events/{eventId}/entries` | 입장 요청 (대기열, 202) |
 | GET | `/api/v1/events/{eventId}/entries/{requestId}` | 입장 상태: 대기 순번/예상 시간, 토큰, 실패 |
-| POST | `/api/v1/events/{eventId}/entries/direct` | 대기열 없이 즉시 입장 (부하 비교 기준선용) |
+| POST | `/api/v1/events/{eventId}/entries/direct` | 대기열 없이 즉시 입장 (부하 비교 기준선용, `local`/`bench` 프로필에서만 열림) |
 | GET | `/api/v1/events/{eventId}/seats` | 좌석 현황 |
 | POST | `/api/v1/seats/{seatId}/hold` | 좌석 선점 (`X-Entry-Token` 헤더 필요) |
 | POST | `/api/v1/seats/{seatId}/release` | 선점 해제 (`X-Entry-Token` 헤더, 선점자 본인만) |
 | POST | `/api/v1/payments` | Mock 결제 `{ "seatId": 1 }` (`X-Entry-Token` 헤더, 선점자 본인만) |
 | GET | `/api/v1/events/{eventId}/stats` | 회차 통계 |
 
-WebSocket(STOMP) 엔드포인트는 `/ws`이고, `/topic/entries/{requestId}`(입장 허용), `/topic/events/{eventId}/seats`(좌석 상태)를 구독한다.
+WebSocket(STOMP) 엔드포인트는 `/ws`이고, `/topic/entries/{requestId}`(입장 허용), `/topic/events/{eventId}/seats`(좌석 상태)를 구독한다. 같은 Origin의 접속만 받으며, 화면을 다른 도메인에서 서비스하면 `websocket.allowed-origin-patterns`에 그 Origin을 넣는다.
 
 ## Kafka 토픽
 
@@ -177,5 +177,5 @@ load-generator    k6 시나리오 (direct.js / queue.js)
 
 - 배포 환경 구성 (DESIGN 9단계, 추후 결정)
 - 사용자 인증 없음: 입장 토큰은 requestId를 아는 사람이 조회할 수 있다
-- 대기열 우회용 `entries/direct`, STOMP 허용 Origin `*`는 로컬 시뮬레이션용이라 배포 시 막아야 한다
+- 기본 프로필이 `local`이라 대기열 우회 API(`entries/direct`)가 열려 있다. 배포 시에는 `local`/`bench`가 아닌 프로필로 실행해야 한다
 - 통계/릴레이 Consumer의 DLT는 보관만 하고 재처리하지 않는다

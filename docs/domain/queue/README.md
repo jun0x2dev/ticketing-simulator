@@ -10,7 +10,7 @@ DB entity 없이 producer/consumer, 서비스, Redis 토큰 관리자로 구성�
 - `POST /api/v1/events/{eventId}/entries` — 입장 요청 접수(202). 이벤트 존재와 오픈 여부를 확인하고 대기 줄에 세운 뒤 `entry.requested`에 발행하고 `requestId`를 반환한다. 접수 지연을 늘리지 않도록 브로커 응답은 기다리지 않는다. 발행이 실패하면 콜백에서 줄에서 빼고 `entry:failed:{requestId}`로 표시해, 상태 조회가 `FAILED`를 반환하고 대기 화면이 "다시 줄 서기"를 안내한다 ([트러블슈팅](../../troubleshooting/2026-10-29-entry-request-stuck-on-publish-failure.md)).
 - `EntryRequestConsumer`가 `queue.worker.tps`(기본 100)에 맞춰 토픽을 소비한다. 처리 후 `1000/tps`ms 대기하므로 못 처리한 요청은 Kafka에 쌓인다.
 - `EntryService.grantEntry`: 입장 토큰을 발급하고 `entry.granted`를 발행한다. 토큰 값은 이벤트에 싣지 않는다.
-- `POST /api/v1/events/{eventId}/entries/direct` — 대기열을 거치지 않고 즉시 토큰 발급. 부하 비교의 "대기열 적용 전" 기준선 전용이다.
+- `POST /api/v1/events/{eventId}/entries/direct` — 대기열을 거치지 않고 즉시 토큰 발급. 부하 비교의 "대기열 적용 전" 기준선 전용이다. 누구나 줄을 건너뛸 수 있으므로 `DirectEntryController`를 `local`/`bench` 프로필에서만 등록한다. 그 밖의 프로필에서는 경로가 상태 조회(GET)와 겹쳐 405로 거절된다([트레이드오프](../../trade-offs/2026-11-02-simulation-only-endpoints.md)).
 - 오픈 시각 검증: 두 입장 API 모두 서버 시각이 회차의 `openAt` 전이면 `EVENT_NOT_OPENED`(409)로 거절한다. 줄에 세우지도 토큰을 발급하지도 않는다. 클라이언트 시계는 믿지 않고 서버 시각으로만 판단한다([트러블슈팅](../../troubleshooting/2026-11-02-entry-accepted-before-open.md)).
 - `GET /api/v1/events/{eventId}/entries/{requestId}` — `WAITING`(대기 순번 `position`, 내 뒤 인원 `behind`, 예상 대기 시간 `estimatedSeconds` 포함) 또는 `GRANTED`(+토큰). 순번이 없는 `WAITING`은 줄에서 막 빠져 입장 처리 중이거나 모르는 요청이다.
 - 대기 순번: 입장 요청 시 Kafka 발행 **전에** Redis Sorted Set `queue:line:{eventId}`(score = `queue:seq:{eventId}` INCR 순번)에 줄을 세우고, Queue Worker가 입장을 허용하면 줄에서 뺀다. 순번은 `ZRANK + 1`, 뒤 인원은 `ZCARD - 순번`, 예상 대기 시간은 `ceil(순번 / queue.worker.tps)`. 줄 키는 마지막 접수 후 1시간 뒤 만료된다.
@@ -18,7 +18,7 @@ DB entity 없이 producer/consumer, 서비스, Redis 토큰 관리자로 구성�
 - 좌석 선점(`seat` 도메인)은 `X-Entry-Token` 헤더의 토큰이 유효하고 좌석의 이벤트와 같아야 한다.
 - 실패 처리: Consumer가 실패하면 1초 간격 3회 재시도 후 `entry.requested.DLT`로 이동한다(`KafkaConsumerConfig`). 역직렬화할 수 없는 메시지는 `ErrorHandlingDeserializer`가 감지해 재시도 없이 원본 바이트 그대로 DLT로 보내고, 다음 메시지를 계속 처리한다. DLT를 소비하다 실패한 메시지는 `*.DLT.DLT`를 만들지 않고 error 로그만 남기고 건너뛴다([트러블슈팅](../../troubleshooting/2026-10-29-kafka-poison-message-blocks-partition.md)).
 - DLT 재처리: `EntryRequestDltConsumer`가 DLT 도착 5초 뒤(`queue.dlt.redrive-delay-ms`) `redriveCount`를 1 올려 원래 토픽으로 한 번 다시 보낸다. 재투입본도 실패해 다시 DLT에 오면 대기 줄에서 빼고 `entry:failed:{requestId}`(토큰과 같은 TTL)로 표시한다. 상태 조회는 `FAILED`를 반환하고, 대기 화면은 "다시 줄 서기"를 안내한다. 재투입 발행 자체가 실패해도 같은 최종 실패로 처리한다. DLT Consumer 자체의 예외는 다시 DLT로 보내지 않고 에러 로그로 남긴다.
-- `EntryGrantedRelayConsumer`가 `entry.granted`를 구독해 `/topic/entries/{requestId}`로 WebSocket 알림을 보낸다(토큰 미포함). 클라이언트는 알림을 받으면 `GET /api/v1/events/{eventId}/entries/{requestId}`로 토큰을 가져간다. 인스턴스별 고유 그룹 + 최신 오프셋으로 구독한다.
+- `EntryGrantedRelayConsumer`가 `entry.granted`를 구독해 `/topic/entries/{requestId}`로 WebSocket 알림을 보낸다(토큰 미포함). `/ws`는 같은 Origin의 접속만 받는다(`websocket.allowed-origin-patterns`로 추가 허용). 클라이언트는 알림을 받으면 `GET /api/v1/events/{eventId}/entries/{requestId}`로 토큰을 가져간다. 인스턴스별 고유 그룹 + 최신 오프셋으로 구독한다.
 - 미구현: 하위 Consumer DLT(`*.DLT`)의 재처리
 
 ## 관련 이벤트 (Kafka 토픽)
