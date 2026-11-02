@@ -9,7 +9,8 @@
 
 - Event는 생성 이후 별도 상태 전이가 없다 (단순 메타데이터). 사용자가 공연을 고를 때마다 생기는 "회차" 단위다.
 - 지난 회차 정리: `EventRunCleanupScheduler`가 매시 정각(`event.run-cleanup-cron`)에 오픈 시각이 24시간(`event.run-retention-hours`) 넘게 지난 회차를 100개씩 묶어 좌석 → 회차 순으로 삭제한다. 결제 기록(payments)은 이력으로 남긴다. `events.open_at`에 인덱스를 둔다.
-- `POST /api/v1/events` — 이벤트 직접 생성 (k6 시나리오용, 좌석 최대 500석)
+- `POST /api/v1/events` — 이벤트 직접 생성 (k6 시나리오용, 좌석 최대 500석). `openAt`은 오프셋이 있는 미래 시각(`2026-11-02T10:00:00Z`, `...+09:00`)으로 받아 서버 시간대 시각으로 바꿔 저장한다. 입장 API의 오픈 검증과 회차 정리가 서버 시각을 기준으로 하기 때문이다.
+- 화면의 회차(`POST /api/v1/concerts/{concertId}/runs`)는 만드는 즉시 열린다(오픈 시각 = 현재 서버 시각).
 - `GET /api/v1/events/{eventId}` — 이벤트 조회
 
 ## 관련 이벤트 (Kafka 토픽)

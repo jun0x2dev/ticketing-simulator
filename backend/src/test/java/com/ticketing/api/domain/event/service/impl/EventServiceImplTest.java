@@ -18,6 +18,9 @@ import com.ticketing.api.domain.seat.service.SeatService;
 import com.ticketing.api.global.exception.CustomException;
 import com.ticketing.api.global.exception.ErrorCode;
 import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
+import java.time.ZoneId;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.DisplayName;
@@ -49,8 +52,8 @@ class EventServiceImplTest {
     @DisplayName("이벤트를 생성하면 저장된 정보를 응답으로 반환한다")
     void createEvent_success() {
         // given
-        EventCreateRequest request = new EventCreateRequest("콘서트 A", 100, LocalDateTime.now().plusDays(1));
-        Event savedEvent = Event.create(request.name(), request.seatCount(), request.openAt());
+        EventCreateRequest request = new EventCreateRequest("콘서트 A", 100, OffsetDateTime.now().plusDays(1));
+        Event savedEvent = Event.create(request.name(), request.seatCount(), request.openAt().toLocalDateTime());
         when(eventRepository.save(any(Event.class))).thenReturn(savedEvent);
 
         // when
@@ -59,6 +62,21 @@ class EventServiceImplTest {
         // then
         assertThat(response.name()).isEqualTo("콘서트 A");
         assertThat(response.seatCount()).isEqualTo(100);
+    }
+
+    // 다른 시간대로 보낸 오픈 시각도 같은 순간의 서버 시각으로 저장되어야, 서버 시각 기준의 오픈 검증이 어긋나지 않는다
+    @Test
+    @DisplayName("오프셋이 있는 오픈 시각은 같은 순간의 서버 시간대 시각으로 저장한다")
+    void createEvent_convertsOpenAtToServerZone() {
+        // given
+        OffsetDateTime openAt = OffsetDateTime.of(2099, 1, 1, 0, 0, 0, 0, ZoneOffset.UTC);
+        when(eventRepository.save(any(Event.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        // when
+        EventResponse response = eventService.createEvent(new EventCreateRequest("콘서트 A", 1, openAt));
+
+        // then
+        assertThat(response.openAt()).isEqualTo(openAt.atZoneSameInstant(ZoneId.systemDefault()).toLocalDateTime());
     }
 
     // 존재하는 이벤트를 ID로 조회하면 정상적으로 응답이 반환되는지 확인

@@ -9,7 +9,7 @@ import com.ticketing.api.domain.event.dto.EventResponse;
 import com.ticketing.api.domain.event.service.EventService;
 import com.ticketing.api.global.exception.CustomException;
 import com.ticketing.api.global.exception.ErrorCode;
-import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
@@ -70,7 +70,7 @@ public class ConcertServiceImpl implements ConcertService {
                 .orElseThrow(() -> new CustomException(ErrorCode.CONCERT_NOT_FOUND));
         // 회차는 고르는 즉시 오픈되는 시뮬레이션이므로 오픈 시각은 현재 시각이다.
         EventResponse run = eventService.createEvent(
-                new EventCreateRequest(concert.getTitle(), concert.getSeatCount(), LocalDateTime.now()));
+                new EventCreateRequest(concert.getTitle(), concert.getSeatCount(), OffsetDateTime.now()));
         log.info("공연 회차 생성 - concertId: {}, eventId: {}", concertId, run.id());
         return run;
     }
