@@ -17,9 +17,8 @@ DB entity 없이 producer/consumer, 서비스, Redis 토큰 관리자로 구성�
 - 토큰은 Redis 키 두 개로 관리한다. `entry:grant:{requestId}` → 토큰(요청당 1회 발급 = 멱등성 키), `entry:token:{token}` → eventId(선점 시 검증용). 둘 다 TTL `queue.token-ttl-seconds`(기본 600초).
 - 좌석 선점(`seat` 도메인)은 `X-Entry-Token` 헤더의 토큰이 유효하고 좌석의 이벤트와 같아야 한다.
 - 실패 처리: Consumer가 실패하면 1초 간격 3회 재시도 후 `entry.requested.DLT`로 이동한다(`KafkaConsumerConfig`). 역직렬화할 수 없는 메시지는 `ErrorHandlingDeserializer`가 감지해 재시도 없이 원본 바이트 그대로 DLT로 보내고, 다음 메시지를 계속 처리한다. DLT를 소비하다 실패한 메시지는 `*.DLT.DLT`를 만들지 않고 error 로그만 남기고 건너뛴다([트러블슈팅](../../troubleshooting/2026-10-29-kafka-poison-message-blocks-partition.md)).
-- DLT 재처리: `EntryRequestDltConsumer`가 DLT 도착 5초 뒤(`queue.dlt.redrive-delay-ms`) `redriveCount`를 1 올려 원래 토픽으로 한 번 다시 보낸다. 재투입본도 실패해 다시 DLT에 오면 대기 줄에서 빼고 `entry:failed:{requestId}`(토큰과 같은 TTL)로 표시한다. 상태 조회는 `FAILED`를 반환하고, 대기 화면은 "다시 줄 서기"를 안내한다. 재투입 발행 자체가 실패해도 같은 최종 실패로 처리한다. DLT Consumer 자체의 예외는 다시 DLT로 보내지 않고 에러 로그로 남긴다.
+- DLT 재처리: `EntryRequestDltConsumer`가 DLT 도착 5초 뒤(`queue.dlt.redrive-delay-ms`) `redriveCount`를 1 올려 원래 토픽으로 한 번 다시 보낸다. 재투입본도 실패해 다시 DLT에 오면 대기 줄에서 빼고 `entry:failed:{requestId}`(토큰과 같은 TTL)로 표시한다. 상태 조회는 `FAILED`를 반환하고, 대기 화면은 "다시 줄 서기"를 안내한다. 재투입 발행 자체가 실패해도 같은 최종 실패로 처리한다. DLT Consumer 자체의 예외는 다시 DLT로 보내지 않고 에러 로그로 남긴다. 종료 중 대기가 끊기면 `InterruptedException`으로 끝내 오프셋을 커밋하지 않고, 재시작 후 다시 받는다.
 - `EntryGrantedRelayConsumer`가 `entry.granted`를 구독해 `/topic/entries/{requestId}`로 WebSocket 알림을 보낸다(토큰 미포함). `/ws`는 같은 Origin의 접속만 받는다(`websocket.allowed-origin-patterns`로 추가 허용). 클라이언트는 알림을 받으면 `GET /api/v1/events/{eventId}/entries/{requestId}`로 토큰을 가져간다. 인스턴스별 고유 그룹 + 최신 오프셋으로 구독한다.
-- 미구현: 하위 Consumer DLT(`*.DLT`)의 재처리
 
 ## 관련 이벤트 (Kafka 토픽)
 
@@ -30,6 +29,6 @@ DB entity 없이 producer/consumer, 서비스, Redis 토큰 관리자로 구성�
 | `entry.granted` | queue.producer (EntryGrantedProducer) | queue.consumer (EntryGrantedRelayConsumer), stats.consumer (EventStatsConsumer) | 입장 허용 알림을 WebSocket으로 릴레이 + 통계 집계. 토큰 미포함 |
 | `seat.confirmed` | outbox (OutboxRelayScheduler, 결제에서 기록) | stats.consumer (EventStatsConsumer) | 결제 완료 좌석 |
 | `seat.released` | outbox (OutboxRelayScheduler, 결제/TTL 복구에서 기록) | stats.consumer (EventStatsConsumer) | 결제 실패(`PAYMENT_FAILED`) 또는 TTL 만료(`TTL_EXPIRED`)로 해제된 좌석 |
-| `entry.granted.DLT`, `seat.confirmed.DLT`, `seat.released.DLT` | Spring Kafka 에러 핸들러 | (없음) | 하위 Consumer(통계/릴레이) 재시도 소진 메시지 보관 |
+| `entry.granted.DLT`, `seat.confirmed.DLT`, `seat.released.DLT` | Spring Kafka 에러 핸들러 | stats.consumer (EventStatsDltConsumer) | 하위 Consumer(통계/릴레이) 재시도 소진 메시지. 통계는 5초 뒤 재집계, 릴레이는 재처리하지 않음(대기 화면 폴링으로 대체) |
 
 토픽 정의는 `global.config.KafkaTopicConfig`에서 관리한다.

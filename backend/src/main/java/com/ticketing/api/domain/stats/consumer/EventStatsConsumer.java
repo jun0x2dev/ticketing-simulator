@@ -11,7 +11,7 @@ import org.springframework.stereotype.Component;
 
 /**
  * 입장 허용/결제 완료/좌석 해제 이벤트를 구독해 회차별 통계를 집계하는 Consumer.
- * 처리 실패 시 공통 에러 핸들러가 재시도 후 각 토픽의 DLT로 보내고, 중복 전달은 서비스가 멱등 키로 걸러낸다.
+ * 처리 실패 시 공통 에러 핸들러가 재시도 후 각 토픽의 DLT로 보내고({@link EventStatsDltConsumer}가 재처리), 중복 전달은 서비스가 멱등 키로 걸러낸다.
  * 결제 이벤트 DTO는 queue 패키지 밖에 있으므로, 이 리스너에서만 역직렬화 허용 패키지를 넓힌다.
  */
 @Component
@@ -19,7 +19,8 @@ import org.springframework.stereotype.Component;
 public class EventStatsConsumer {
 
     private static final String GROUP_ID = "ticketing-stats";
-    private static final String TRUSTED_PACKAGES =
+    // DLT 재처리 Consumer도 같은 이벤트 DTO를 받으므로 패키지 안에서 함께 쓴다.
+    static final String TRUSTED_PACKAGES =
             "spring.json.trusted.packages=com.ticketing.api.domain.queue.dto,com.ticketing.api.domain.payment.dto";
 
     private final EventStatsService eventStatsService;
