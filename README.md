@@ -27,7 +27,6 @@ k6 가상 관객을 같은 회차에 보내면 내 화면에서 좌석이 실시
 
 - 백엔드는 하나의 Spring Boot 앱(모놀리식)입니다. 그림에서는 요청을 받는 부분(REST API, WebSocket)과 Kafka Consumer/스케줄러를 나눠 그렸고, Kafka는 앱 밖의 브로커입니다.
 - 회색 선은 HTTP/WebSocket 호출과 저장소 접근, 주황색 선은 Kafka 이벤트입니다. 재시도를 다 쓴 메시지는 각 토픽의 `.DLT`로 갑니다(선 생략).
-- 그림은 [`docs/architecture.py`](./docs/architecture.py)([diagrams](https://diagrams.mingrammer.com), Graphviz 필요)로 다시 만들 수 있습니다.
 
 ## 동작 흐름
 
