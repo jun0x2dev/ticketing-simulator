@@ -21,6 +21,14 @@ k6 가상 관객을 같은 회차에 보내면 내 화면에서 좌석이 실시
 | 통계 | 입장 허용/결제 완료/결제 실패/시간 초과를 Kafka로 구독해 Redis에 멱등 집계한다(Lua 스크립트) | [DLT 재처리와 통계](./docs/trade-offs/2026-10-29-dlt-redrive-and-stats.md) |
 | 부하 제한 | 좌석 수는 서버가 정한 공연 템플릿(50~500석)에서만 나오고, 지난 회차는 24시간 뒤 자동 정리한다 | [공연 템플릿](./docs/trade-offs/2026-10-29-concert-template-runs.md), [회차 정리](./docs/trade-offs/2026-10-29-run-cleanup-scheduler.md) |
 
+## 아키텍처
+
+![아키텍처](./docs/architecture.png)
+
+- 백엔드는 하나의 Spring Boot 앱(모놀리식)입니다. 그림에서는 요청을 받는 부분(REST API, WebSocket)과 Kafka Consumer/스케줄러를 나눠 그렸고, Kafka는 앱 밖의 브로커입니다.
+- 회색 선은 HTTP/WebSocket 호출과 저장소 접근, 주황색 선은 Kafka 이벤트입니다. 재시도를 다 쓴 메시지는 각 토픽의 `.DLT`로 갑니다(선 생략).
+- 그림은 [`docs/architecture.py`](./docs/architecture.py)([diagrams](https://diagrams.mingrammer.com), Graphviz 필요)로 다시 만들 수 있습니다.
+
 ## 동작 흐름
 
 ```
