@@ -3,6 +3,7 @@ package com.ticketing.api.domain.queue.controller;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -33,23 +34,24 @@ class DirectEntryControllerProfileTest {
         @MockitoBean
         private EntryService entryService;
 
-        // 경로가 상태 조회(GET .../entries/{requestId})와 겹치므로 500이 아닌 405로 거절되어야 한다
+        // 경로가 상태 조회(GET .../entries/{requestId})와 겹치므로 500이 아닌 405로 거절되고, 허용 메서드(Allow)를 알려야 한다
         @Test
         @DisplayName("프로필이 없으면 직접 입장 API가 없어 405 METHOD_NOT_ALLOWED로 응답한다")
         void directEntry_rejected() throws Exception {
             mockMvc.perform(post("/api/v1/events/1/entries/direct"))
                     .andExpect(status().isMethodNotAllowed())
+                    .andExpect(header().string("Allow", "GET"))
                     .andExpect(jsonPath("$.success").value(false))
                     .andExpect(jsonPath("$.error.code").value("METHOD_NOT_ALLOWED"));
         }
 
         // 없는 경로는 500이 아닌 404로 응답해야 한다
         @Test
-        @DisplayName("없는 경로는 404 ENTITY_NOT_FOUND로 응답한다")
+        @DisplayName("없는 경로는 404 RESOURCE_NOT_FOUND로 응답한다")
         void unknownPath_returnsNotFound() throws Exception {
             mockMvc.perform(get("/api/v1/unknown"))
                     .andExpect(status().isNotFound())
-                    .andExpect(jsonPath("$.error.code").value("ENTITY_NOT_FOUND"));
+                    .andExpect(jsonPath("$.error.code").value("RESOURCE_NOT_FOUND"));
         }
     }
 

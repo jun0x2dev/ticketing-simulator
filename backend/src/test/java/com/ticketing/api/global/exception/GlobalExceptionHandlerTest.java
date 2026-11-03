@@ -16,7 +16,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 /**
- * 잘못된 클라이언트 입력이 500이 아닌 공통 포맷의 400(INVALID_REQUEST)으로 응답되는지 검증한다.
+ * 잘못된 클라이언트 입력이 500이 아닌 공통 포맷의 4xx(400 INVALID_REQUEST, 415 UNSUPPORTED_MEDIA_TYPE 등)로 응답되는지 검증한다.
  */
 @WebMvcTest(EventController.class)
 class GlobalExceptionHandlerTest {
@@ -79,5 +79,17 @@ class GlobalExceptionHandlerTest {
                         .content("not-json"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value("INVALID_REQUEST"));
+    }
+
+    // JSON이 아닌 Content-Type은 서버 오류가 아니라 클라이언트가 고칠 문제이므로 415여야 한다
+    @Test
+    @DisplayName("지원하지 않는 Content-Type은 415 UNSUPPORTED_MEDIA_TYPE으로 응답한다")
+    void unsupportedContentType_returnsUnsupportedMediaType() throws Exception {
+        mockMvc.perform(post("/api/v1/events")
+                        .contentType(MediaType.TEXT_PLAIN)
+                        .content("공연"))
+                .andExpect(status().isUnsupportedMediaType())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.error.code").value("UNSUPPORTED_MEDIA_TYPE"));
     }
 }
