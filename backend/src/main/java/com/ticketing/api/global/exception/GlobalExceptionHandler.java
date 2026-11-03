@@ -2,25 +2,35 @@ package com.ticketing.api.global.exception;
 
 import com.ticketing.api.global.response.ApiResponse;
 import com.ticketing.api.global.response.ErrorResponse;
+import java.util.Map;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ResponseEntity;
-import org.springframework.http.converter.HttpMessageNotReadableException;
-import org.springframework.web.HttpRequestMethodNotSupportedException;
-import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
-import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
-import org.springframework.web.servlet.resource.NoResourceFoundException;
+import org.springframework.web.context.request.WebRequest;
+import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExceptionHandler;
 
 /**
  * 전역 예외 처리기. CustomException은 warn 레벨로, 그 외 예상치 못한 예외는
  * error 레벨 + 스택트레이스로 로깅한 뒤 공통 응답 포맷으로 변환한다.
+ * Spring MVC 표준 예외(검증 실패, 없는 경로, 지원하지 않는 메서드/Content-Type 등)는 상위 클래스가 정한
+ * 상태 코드와 헤더(Allow, Accept 등)를 그대로 쓰고 본문만 공통 포맷으로 바꾼다. 하나씩 처리기를 두면
+ * 빠진 예외가 아래 Exception 처리기에 잡혀 클라이언트 오류가 500이 되기 때문이다.
  */
 @RestControllerAdvice
-public class GlobalExceptionHandler {
+public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
 
     private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
+
+    // 표준 예외의 상태 코드별 응답 코드. 여기 없는 4xx는 INVALID_REQUEST로 응답한다.
+    private static final Map<HttpStatus, ErrorCode> STANDARD_ERROR_CODES = Map.of(
+            HttpStatus.NOT_FOUND, ErrorCode.RESOURCE_NOT_FOUND,
+            HttpStatus.METHOD_NOT_ALLOWED, ErrorCode.METHOD_NOT_ALLOWED,
+            HttpStatus.UNSUPPORTED_MEDIA_TYPE, ErrorCode.UNSUPPORTED_MEDIA_TYPE);
 
     @ExceptionHandler(CustomException.class)
     public ResponseEntity<ApiResponse<Void>> handleCustomException(CustomException e) {
@@ -31,50 +41,32 @@ public class GlobalExceptionHandler {
     }
 
     /**
-     * 클라이언트 입력 오류(Bean Validation 실패, 읽을 수 없는 본문, 잘못된 파라미터 타입)를
-     * 500이 아닌 INVALID_REQUEST(400)로 응답한다.
+     * Spring MVC 표준 예외의 응답 본문을 공통 포맷으로 바꾼다. 상태 코드와 헤더는 상위 클래스가 만든 것을 유지한다.
      *
-     * @param e 요청 바인딩/검증 단계에서 발생한 예외
-     * @return INVALID_REQUEST 응답
+     * @param ex         처리 중인 표준 예외
+     * @param body       상위 클래스가 만든 본문(ProblemDetail). 공통 포맷으로 대체한다
+     * @param headers    응답 헤더
+     * @param statusCode 상위 클래스가 정한 상태 코드
+     * @param request    현재 요청
+     * @return 공통 포맷 응답. 응답이 이미 커밋되어 쓸 수 없으면 null
      */
-    @ExceptionHandler({
-            MethodArgumentNotValidException.class,
-            HttpMessageNotReadableException.class,
-            MethodArgumentTypeMismatchException.class
-    })
-    public ResponseEntity<ApiResponse<Void>> handleInvalidRequest(Exception e) {
-        ErrorCode errorCode = ErrorCode.INVALID_REQUEST;
-        log.warn("Invalid request: {}", e.getMessage());
-        return ResponseEntity.status(errorCode.getStatus())
-                .body(ApiResponse.failure(new ErrorResponse(errorCode.name(), errorCode.getMessage())));
-    }
-
-    /**
-     * 없는 경로는 404(ENTITY_NOT_FOUND)로 응답한다. 아래 Exception 처리기에 잡혀 500이 되지 않도록 따로 처리한다.
-     *
-     * @param e 매핑된 핸들러도 정적 리소스도 없을 때의 예외
-     * @return ENTITY_NOT_FOUND 응답
-     */
-    @ExceptionHandler(NoResourceFoundException.class)
-    public ResponseEntity<ApiResponse<Void>> handleNoResource(NoResourceFoundException e) {
-        return clientError(ErrorCode.ENTITY_NOT_FOUND, e);
-    }
-
-    /**
-     * 경로는 있지만 메서드가 다른 요청은 405(METHOD_NOT_ALLOWED)로 응답한다.
-     * 예: 로컬 전용 {@code POST .../entries/direct}가 꺼진 환경에서는 {@code GET .../entries/{requestId}}와 경로만 겹친다.
-     *
-     * @param e 지원하지 않는 HTTP 메서드 예외
-     * @return METHOD_NOT_ALLOWED 응답
-     */
-    @ExceptionHandler(HttpRequestMethodNotSupportedException.class)
-    public ResponseEntity<ApiResponse<Void>> handleMethodNotSupported(HttpRequestMethodNotSupportedException e) {
-        return clientError(ErrorCode.METHOD_NOT_ALLOWED, e);
-    }
-
-    private ResponseEntity<ApiResponse<Void>> clientError(ErrorCode errorCode, Exception e) {
-        log.warn("{}: {}", errorCode, e.getMessage());
-        return ResponseEntity.status(errorCode.getStatus())
+    @Override
+    protected ResponseEntity<Object> handleExceptionInternal(Exception ex, Object body, HttpHeaders headers,
+                                                             HttpStatusCode statusCode, WebRequest request) {
+        ResponseEntity<Object> response = super.handleExceptionInternal(ex, body, headers, statusCode, request);
+        if (response == null) {
+            return null;
+        }
+        ErrorCode errorCode;
+        if (statusCode.is5xxServerError()) {
+            errorCode = ErrorCode.INTERNAL_SERVER_ERROR;
+            log.error("Spring MVC exception", ex);
+        } else {
+            errorCode = STANDARD_ERROR_CODES.getOrDefault(HttpStatus.resolve(statusCode.value()), ErrorCode.INVALID_REQUEST);
+            log.warn("{}: {}", errorCode, ex.getMessage());
+        }
+        return ResponseEntity.status(response.getStatusCode())
+                .headers(response.getHeaders())
                 .body(ApiResponse.failure(new ErrorResponse(errorCode.name(), errorCode.getMessage())));
     }
 
