@@ -63,7 +63,8 @@ public class OutboxServiceImpl implements OutboxService {
         }
 
         // 하나씩 응답을 기다리지 않고 모두 보낸 뒤 결과를 모은다. 같은 키의 순서는 Producer가 파티션 단위로 지킨다.
-        List<CompletableFuture<?>> results = pending.stream().map(this::send).toList();
+        // 타입을 명시하지 않으면 Eclipse 컴파일러(VS Code Java)가 와일드카드를 캡처 타입으로 추론해 컴파일 오류로 본다.
+        List<CompletableFuture<?>> results = pending.stream().<CompletableFuture<?>>map(this::send).toList();
 
         // 행 잠금과 DB 커넥션을 잡은 채 기다리므로, 브로커가 응답하지 않아도 전체 대기 시간은 sendTimeout을 넘지 않게 한다.
         long deadline = System.nanoTime() + sendTimeout.toNanos();
