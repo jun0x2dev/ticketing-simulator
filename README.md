@@ -183,7 +183,7 @@ load-generator    k6 시나리오 (direct.js / queue.js)
 
 ## 범위 밖 / 남은 과제
 
-- 배포 환경 구성 (DESIGN 9단계, 추후 결정)
+- 배포 환경 구성: 로컬(docker-compose) 실행까지만 다룬다
 - 사용자 인증 없음: 입장 토큰은 requestId를 아는 사람이 조회할 수 있다
 - 기본 프로필이 `local`이라 대기열 우회 API(`entries/direct`)가 열려 있다. 배포 시에는 `local`/`bench`가 아닌 프로필로 실행해야 한다
 - 통계 DLT 재집계까지 실패한 메시지는 error 로그와 DLT 원본으로 수동 처리한다. WebSocket 릴레이 실패는 대기 화면 폴링(1초)으로 대체하고 재처리하지 않는다
