@@ -10,13 +10,15 @@ public record EventStatsResponse(
         long granted,
         long confirmed,
         long paymentFailed,
-        long ttlExpired
+        long ttlExpired,
+        long cancelled
 ) {
 
     public static final String GRANTED = "granted";
     public static final String CONFIRMED = "confirmed";
     public static final String PAYMENT_FAILED = "paymentFailed";
     public static final String TTL_EXPIRED = "ttlExpired";
+    public static final String CANCELLED = "cancelled";
 
     /**
      * Redis에 기록된 항목 맵을 응답으로 변환한다. 아직 한 번도 기록되지 않은 항목은 0이다.
@@ -30,6 +32,7 @@ public record EventStatsResponse(
                 counts.getOrDefault(GRANTED, 0L),
                 counts.getOrDefault(CONFIRMED, 0L),
                 counts.getOrDefault(PAYMENT_FAILED, 0L),
-                counts.getOrDefault(TTL_EXPIRED, 0L));
+                counts.getOrDefault(TTL_EXPIRED, 0L),
+                counts.getOrDefault(CANCELLED, 0L));
     }
 }

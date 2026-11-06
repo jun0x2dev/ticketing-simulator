@@ -12,7 +12,10 @@
 - HELD가 아닌 좌석은 `SEAT_NOT_HELD`, 남이 선점한 좌석은 `SEAT_HOLDER_MISMATCH`, 선점 후 5분이 지난 좌석은 `SEAT_HOLD_EXPIRED`로 게이트웨이 호출 전에 거절한다 (TTL 스케줄러가 아직 풀지 않았어도)
 - 결제 진행 락: 게이트웨이를 부르기 전에 좌석 단위 Redis 락(`payment:lock:{seatId}`, TTL 30초 `payment.lock-ttl-ms`)을 잡는다. 같은 좌석의 결제가 진행 중이면 `PAYMENT_IN_PROGRESS`(409)로 바로 거절해 게이트웨이 승인이 중복으로 나가지 않는다. 락을 잡은 뒤 선점 상태를 확인하므로, 앞선 결제가 막 확정했다면 `SEAT_NOT_HELD`가 된다. 락은 결제가 끝나면 획득 토큰으로만 해제한다([트러블슈팅](../../troubleshooting/2026-10-29-duplicate-payment-approval.md))
 - 승인 후 확정 실패: 결제 중 제한시간이 지나면 `SEAT_HOLD_EXPIRED`, TTL 스케줄러가 이미 해제했다면 `SEAT_NOT_HELD`, 다른 사람이 다시 잡았다면 `SEAT_HOLDER_MISMATCH`로 확정이 실패한다. 이때 게이트웨이에 승인 취소(`cancel(approvalId)`)를 요청하고 Payment(`CANCELLED`, 승인 번호)를 남긴 뒤 원래 예외를 응답한다. 취소나 기록이 실패하면 승인 번호와 함께 error 로그를 남겨 수동 처리한다
-- 상태: `SUCCESS`(승인+확정), `FAILED`(거절), `CANCELLED`(승인 후 확정 실패로 승인 취소). `approval_id`는 승인된 결제(SUCCESS, CANCELLED)에만 있다
+- 상태: `SUCCESS`(승인+확정), `FAILED`(거절), `CANCELLED`(승인 후 확정 실패로 승인 취소), `REFUNDED`(예매 완료 후 사용자가 취소). `approval_id`는 승인된 결제(SUCCESS, CANCELLED, REFUNDED)에만 있다
+- `POST /api/v1/payments/{paymentId}/cancel` + `X-Entry-Token` 헤더(결제할 때 쓴 토큰) — 예매 취소. 확정되면 좌석의 선점자 정보가 지워지므로 결제 기록의 `payer_token`으로 본인을 확인한다(다르면 `PAYMENT_PAYER_MISMATCH` 403). `SUCCESS`가 아니면 `PAYMENT_NOT_CANCELLABLE`(409)
+- 취소 흐름: 결제와 같은 좌석 락(`payment:lock:{seatId}`)을 잡고 → 결제를 다시 읽어 확인 → 게이트웨이 환불(트랜잭션 밖) → 한 트랜잭션에서 결제를 행 잠금으로 다시 확인해 `REFUNDED`로 바꾸고, 좌석을 다시 열고(`reopenSeat`), `seat.released`(`BOOKING_CANCELLED`)를 outbox에 기록한다. 같은 예매의 취소가 동시에 와도 환불은 한 번만 나간다
+- 환불이 실패하면 예매를 그대로 두어 사용자가 다시 시도할 수 있다. 환불 뒤 DB 반영이 실패하면 결제 ID와 승인 번호로 error 로그를 남겨 수동 처리한다([트레이드오프](../../trade-offs/2026-11-04-booking-cancel-refund-first.md))
 - 같은 좌석의 확정은 `confirmSeat`의 행 잠금으로도 한 번 더 막는다(결제 락 TTL이 지난 극단적인 경우 대비)
 - TTL 만료 해제 시 `seat.released`(`TTL_EXPIRED`, paymentId null)는 seat 도메인이 복구 트랜잭션에서 outbox에 기록한다
 - 두 토픽은 stats 도메인의 `EventStatsConsumer`가 회차 통계로 집계한다(paymentId 멱등 키).
@@ -22,4 +25,4 @@
 | 토픽 | 발행 시점 | 키 | 멱등성 키 |
 |---|---|---|---|
 | `seat.confirmed` | 결제 승인 | eventId | paymentId |
-| `seat.released` | 결제 거절 (`PAYMENT_FAILED`) 또는 TTL 만료 (`TTL_EXPIRED`) | eventId | paymentId (TTL 만료는 null) |
+| `seat.released` | 결제 거절 (`PAYMENT_FAILED`), TTL 만료 (`TTL_EXPIRED`), 예매 취소 (`BOOKING_CANCELLED`) | eventId | paymentId (TTL 만료는 null) |

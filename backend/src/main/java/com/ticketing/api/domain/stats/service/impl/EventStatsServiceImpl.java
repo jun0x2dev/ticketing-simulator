@@ -36,12 +36,16 @@ public class EventStatsServiceImpl implements EventStatsService {
 
     @Override
     public void recordReleased(SeatReleasedEvent event) {
-        boolean ttlExpired = SeatReleasedEvent.REASON_TTL_EXPIRED.equals(event.reason());
-        // 결제 실패는 paymentId로 식별하고, 결제 기록이 없는 시간 초과 해제는 좌석과 발생 시각으로 식별한다.
-        String dedupKey = ttlExpired
-                ? "released:ttl:" + event.seatId() + ":" + event.occurredAt().toEpochMilli()
-                : "released:payment:" + event.paymentId();
-        record(event.eventId(), ttlExpired ? EventStatsResponse.TTL_EXPIRED : EventStatsResponse.PAYMENT_FAILED, dedupKey);
+        // 결제 실패와 예매 취소는 paymentId로 식별하고, 결제 기록이 없는 시간 초과 해제는 좌석과 발생 시각으로 식별한다.
+        // 예매 취소의 paymentId는 seat.confirmed와 같은 결제의 것이라 접두어로 구분한다.
+        switch (event.reason()) {
+            case SeatReleasedEvent.REASON_TTL_EXPIRED -> record(event.eventId(), EventStatsResponse.TTL_EXPIRED,
+                    "released:ttl:" + event.seatId() + ":" + event.occurredAt().toEpochMilli());
+            case SeatReleasedEvent.REASON_BOOKING_CANCELLED -> record(event.eventId(), EventStatsResponse.CANCELLED,
+                    "released:cancel:" + event.paymentId());
+            default -> record(event.eventId(), EventStatsResponse.PAYMENT_FAILED,
+                    "released:payment:" + event.paymentId());
+        }
     }
 
     @Override

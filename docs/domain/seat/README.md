@@ -7,7 +7,7 @@
 
 ## 주요 상태/흐름
 
-- 상태: `AVAILABLE` → `HELD` → `CONFIRMED`, `HELD` → `AVAILABLE`(해제)
+- 상태: `AVAILABLE` → `HELD` → `CONFIRMED`, `HELD` → `AVAILABLE`(해제), `CONFIRMED` → `AVAILABLE`(예매 취소)
 - `GET /api/v1/events/{eventId}/seats` — 좌석 목록 조회
 - `POST /api/v1/seats/{seatId}/hold` — `X-Entry-Token` 헤더 필수(없음/만료/타 이벤트 토큰이면 `ENTRY_TOKEN_INVALID`). Redis `SET NX PX`(TTL 5분)로 락 획득 성공한 단 1건만 DB를 `HELD`로 변경. 실패 시 `SEAT_ALREADY_HELD`
 - 선점자: 선점 시 입장 토큰을 `heldBy`에 기록한다. 결제/해제는 같은 토큰으로만 가능하고, 다르면 `SEAT_HOLDER_MISMATCH`(403)
@@ -18,6 +18,7 @@
 - Redis 정리는 DB 트랜잭션 결과를 따른다: 선점은 커밋되지 않으면(검증 예외든 커밋 실패든) `afterCompletion`에서 좌석 락과 토큰 표시를 풀고, 확정/해제는 `afterCommit`에서만 토큰 표시와 좌석 락을 지운다. DB와 Redis가 어긋나 좌석이나 사용자가 5분 동안 묶이는 일을 막는다([트러블슈팅](../../troubleshooting/2026-10-29-redis-side-effects-before-commit.md))
 - 선점 시 `heldAt`을 기록한다. `SeatHoldExpirationScheduler`가 5초마다(fixedDelay) `heldAt < now - 5분`인 `HELD` 좌석을 행 잠금(`FOR UPDATE`)으로 조회해 `AVAILABLE`로 복구하고, 같은 트랜잭션에서 `seat.released`(`TTL_EXPIRED`)를 outbox에 기록한다 (Redis 락은 TTL로 이미 만료된 상태)
 - 결제 승인 시 payment 도메인이 `confirmSeat`으로 `CONFIRMED` 전환, 거절 시 `releaseSeat` 호출
+- 예매 취소 시 payment 도메인이 `reopenSeat`으로 `CONFIRMED`를 `AVAILABLE`로 되돌린다(행 잠금 후 확인, 아니면 `SEAT_NOT_CONFIRMED`). 선점 때 건 좌석 락은 확정 뒤에도 TTL까지 남아 있으므로 커밋 뒤에 지워, 다시 열린 좌석을 바로 잡을 수 있게 한다. 열린 좌석은 WebSocket으로 알려지고, 몰려든 사용자 중 1명만 선점된다
 - `confirmSeat`/`releaseSeat`도 행 잠금(`findByIdForUpdate`)으로 읽은 뒤 선점자를 확인한다. TTL 복구, 같은 좌석의 동시 결제와 순서가 보장된다 ([트러블슈팅](../../troubleshooting/2026-10-29-seat-confirm-race-with-ttl-release.md))
 - 좌석 상태가 바뀌면(선점/확정/해제/TTL 복구) 커밋 이후 `/topic/events/{eventId}/seats`로 `{eventId, seatId, status}`를 WebSocket 브로드캐스트한다 (`SeatStatusBroadcaster`)
 - WebSocket 접속: STOMP endpoint `/ws`, 구독 prefix `/topic`
@@ -25,5 +26,5 @@
 ## 관련 이벤트 (Kafka 토픽)
 
 - `seat.released`(`TTL_EXPIRED`): `SeatServiceImpl.releaseExpiredSeats`가 복구 트랜잭션에서 outbox에 기록하고, outbox 발행기가 보낸다.
-- `seat.confirmed`, `seat.released`(`PAYMENT_FAILED`): payment 도메인이 결제 결과와 같은 트랜잭션에서 outbox에 기록한다.
+- `seat.confirmed`, `seat.released`(`PAYMENT_FAILED`, `BOOKING_CANCELLED`): payment 도메인이 결제 결과/취소와 같은 트랜잭션에서 outbox에 기록한다.
 - 소비: stats 도메인의 `EventStatsConsumer`가 회차 통계로 집계한다.

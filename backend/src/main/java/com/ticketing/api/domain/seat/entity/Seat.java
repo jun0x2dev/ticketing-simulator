@@ -120,6 +120,16 @@ public class Seat {
     }
 
     /**
+     * 예매 취소로 확정된 좌석을 다시 선택 가능 상태로 연다. CONFIRMED 상태에서만 가능하다.
+     */
+    public void reopen() {
+        if (this.status != SeatStatus.CONFIRMED) {
+            throw new CustomException(ErrorCode.SEAT_NOT_CONFIRMED);
+        }
+        this.status = SeatStatus.AVAILABLE;
+    }
+
+    /**
      * 결제 실패/TTL 만료 등으로 선점을 해제하고 다시 선택 가능 상태로 되돌린다.
      */
     public void release() {
