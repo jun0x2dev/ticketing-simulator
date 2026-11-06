@@ -6,6 +6,19 @@ k6 가상 관객을 같은 회차에 보내면 내 화면에서 좌석이 실시
 
 대기열(Kafka), 좌석 선점 동시성 제어(Redis), 결제 제한시간(TTL), 실시간 브로드캐스트(WebSocket)를 핵심으로 다룹니다.
 
+## 시연
+
+![예매부터 취소까지 시연](./docs/demo.gif)
+
+k6 가상 관객 150명과 같은 회차에 줄을 서서 예매하고, 예매를 취소해 좌석이 다시 열리는 과정입니다(250석 공연).
+
+1. 공연을 고르면 새 회차가 열리고 대기열에 들어갑니다. 먼저 온 가상 관객 뒤에서 순번이 줄어듭니다.
+2. 좌석 화면에 들어간 뒤 두 번째 가상 관객 80명을 보냅니다. 다른 관객이 잡은 좌석이 WebSocket으로 실시간 회색(결제 진행 중)으로 바뀝니다.
+3. 남은 좌석을 선점해 결제하고, 결과 화면에서 예매를 취소합니다. 환불이 먼저 끝난 뒤 좌석이 다시 열립니다.
+4. 좌석 화면으로 돌아가면 방금 취소한 좌석(빨간 원)이 다시 선택 가능합니다.
+
+대기열과 좌석 경쟁 구간은 자막에 적은 배속으로 빨리 감았습니다.
+
 ## 핵심 구현
 
 | 주제 | 구현 | 기록 |
@@ -15,10 +28,11 @@ k6 가상 관객을 같은 회차에 보내면 내 화면에서 좌석이 실시
 | 입장 토큰 | 입장이 허용되면 Redis에 TTL 토큰을 발급한다. requestId 단위 `SET NX`라 중복 소비에도 한 번만 발급된다 | [Redis 토큰 vs JWT](./docs/trade-offs/2026-10-28-entry-token-redis-vs-jwt.md) |
 | 좌석 동시성 | 좌석 단위 Redis 락(`SET NX PX`)으로 동시 선점 중 1건만 통과시키고, 엔티티 상태 검증으로 이중 방어한다. 결제도 좌석 단위 락으로 한 번에 하나만 진행해 승인이 중복으로 나가지 않는다 | [Redis 락 선택](./docs/trade-offs/2026-10-26-redis-lock-vs-optimistic-lock.md) |
 | 결제 TTL | 결제 없이 5분이 지난 좌석은 결제/해제 시점에 거절하고, 스케줄러가 행 잠금으로 찾아 해제한 뒤 `seat.released`를 발행한다 | [스케줄러 vs 만료 이벤트](./docs/trade-offs/2026-10-26-seat-ttl-scheduler-vs-keyspace-notification.md) |
+| 예매 취소 | 환불이 성공한 뒤에만 결제를 `REFUNDED`로 바꾸고 좌석을 다시 연다. 결제와 같은 좌석 락과 행 잠금으로 동시 취소에도 환불은 한 번만 나가고, 다시 열린 좌석은 선점 락으로 1명만 잡는다 | [환불 먼저](./docs/trade-offs/2026-11-04-booking-cancel-refund-first.md) |
 | 이벤트 발행 보장 | 좌석 확정/해제와 `seat.*` 이벤트를 같은 트랜잭션에 outbox로 기록하고, 발행기가 `FOR UPDATE SKIP LOCKED`로 나눠 가져가 적어도 한 번 발행한다 | [Transactional Outbox](./docs/trade-offs/2026-10-29-transactional-outbox.md) |
 | 실시간 반영 | 좌석 상태 변경을 커밋 이후 STOMP로 브로드캐스트하고, 입장 허용은 `entry.granted`를 릴레이해 알린다 | [브로드캐스트 방식](./docs/trade-offs/2026-10-28-websocket-broadcast-after-commit.md) |
 | 실패 처리 | Consumer는 3회 재시도 후 DLT로 보내고, 역직렬화할 수 없는 메시지는 재시도 없이 원본 그대로 DLT로 보낸다. 입장 요청 DLT는 1회 자동 재투입하고, 그래도 실패하면 사용자에게 다시 줄 서기를 안내한다 | [재시도/DLT](./docs/trade-offs/2026-10-28-consumer-retry-and-dlt.md), [DLT 재처리](./docs/trade-offs/2026-10-29-dlt-redrive-and-stats.md) |
-| 통계 | 입장 허용/결제 완료/결제 실패/시간 초과를 Kafka로 구독해 Redis에 멱등 집계한다(Lua 스크립트) | [DLT 재처리와 통계](./docs/trade-offs/2026-10-29-dlt-redrive-and-stats.md) |
+| 통계 | 입장 허용/결제 완료/결제 실패/시간 초과/예매 취소를 Kafka로 구독해 Redis에 멱등 집계한다(Lua 스크립트) | [DLT 재처리와 통계](./docs/trade-offs/2026-10-29-dlt-redrive-and-stats.md) |
 | 부하 제한 | 좌석 수는 서버가 정한 공연 템플릿(50~500석)에서만 나오고, 지난 회차는 24시간 뒤 자동 정리한다 | [공연 템플릿](./docs/trade-offs/2026-10-29-concert-template-runs.md), [회차 정리](./docs/trade-offs/2026-10-29-run-cleanup-scheduler.md) |
 
 ## 아키텍처
@@ -45,6 +59,8 @@ k6 가상 관객을 같은 회차에 보내면 내 화면에서 좌석이 실시
 결제 ─ POST /payments (X-Entry-Token) ─▶ Mock 게이트웨이 ─▶ CONFIRMED + seat.confirmed / AVAILABLE + seat.released
     │
 예매 완료 ◀─ GET /events/{id}/stats (통계 Consumer 집계)
+    │
+예매 취소 ─ POST /payments/{id}/cancel ─▶ 환불 ─▶ AVAILABLE + seat.released ─▶ 좌석 다시 열림(WebSocket)
 ```
 
 ## 부하 테스트: 대기열 적용 전/후
@@ -139,6 +155,7 @@ cd backend
 | POST | `/api/v1/seats/{seatId}/hold` | 좌석 선점 (`X-Entry-Token` 헤더 필요) |
 | POST | `/api/v1/seats/{seatId}/release` | 선점 해제 (`X-Entry-Token` 헤더, 선점자 본인만) |
 | POST | `/api/v1/payments` | Mock 결제 `{ "seatId": 1 }` (`X-Entry-Token` 헤더, 선점자 본인만) |
+| POST | `/api/v1/payments/{paymentId}/cancel` | 예매 취소, 환불 후 좌석 다시 열기 (`X-Entry-Token` 헤더, 결제한 본인만) |
 | GET | `/api/v1/events/{eventId}/stats` | 회차 통계 |
 
 WebSocket(STOMP) 엔드포인트는 `/ws`이고, `/topic/entries/{requestId}`(입장 허용), `/topic/events/{eventId}/seats`(좌석 상태)를 구독한다. 같은 Origin의 접속만 받으며, 화면을 다른 도메인에서 서비스하면 `websocket.allowed-origin-patterns`에 그 Origin을 넣는다.
@@ -152,7 +169,7 @@ WebSocket(STOMP) 엔드포인트는 `/ws`이고, `/topic/entries/{requestId}`(�
 | `entry.granted.DLT`, `seat.*.DLT` | 통계/릴레이 재시도 소진 | 통계 DLT 재집계 Consumer |
 | `entry.granted` | 입장 허용 | WebSocket 릴레이, 통계 |
 | `seat.confirmed` | 결제 완료 | 통계 |
-| `seat.released` | 결제 실패 / 시간 초과 해제 | 통계 |
+| `seat.released` | 결제 실패 / 시간 초과 해제 / 예매 취소 | 통계 |
 
 ## 프로젝트 구조
 

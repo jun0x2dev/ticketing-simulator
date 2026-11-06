@@ -19,7 +19,11 @@ public enum ErrorCode {
     SEAT_HOLD_EXPIRED(HttpStatus.CONFLICT, "결제 제한시간이 지나 좌석 선점이 만료되었습니다."),
     SEAT_HOLDER_MISMATCH(HttpStatus.FORBIDDEN, "이 좌석을 선점한 사용자가 아닙니다."),
     SEAT_HOLD_LIMIT_EXCEEDED(HttpStatus.CONFLICT, "이미 선점 중인 좌석이 있습니다. 한 번에 1석만 선점할 수 있습니다."),
+    SEAT_NOT_CONFIRMED(HttpStatus.CONFLICT, "예매가 확정된 좌석이 아닙니다."),
     PAYMENT_IN_PROGRESS(HttpStatus.CONFLICT, "이미 결제가 진행 중인 좌석입니다."),
+    PAYMENT_NOT_FOUND(HttpStatus.NOT_FOUND, "결제 내역을 찾을 수 없습니다."),
+    PAYMENT_PAYER_MISMATCH(HttpStatus.FORBIDDEN, "이 예매를 결제한 사용자가 아닙니다."),
+    PAYMENT_NOT_CANCELLABLE(HttpStatus.CONFLICT, "취소할 수 없는 결제입니다."),
     ENTRY_TOKEN_INVALID(HttpStatus.FORBIDDEN, "유효하지 않거나 만료된 입장 토큰입니다."),
     INTERNAL_SERVER_ERROR(HttpStatus.INTERNAL_SERVER_ERROR, "서버 내부 오류가 발생했습니다.");
 

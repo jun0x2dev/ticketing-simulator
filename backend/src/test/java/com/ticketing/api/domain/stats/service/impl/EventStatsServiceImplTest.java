@@ -55,22 +55,25 @@ class EventStatsServiceImplTest {
         verify(recorder).incrementOnce(7L, EventStatsResponse.CONFIRMED, "confirmed:100");
     }
 
-    // 결제 실패 해제와 시간 초과 해제는 서로 다른 항목에, 각자 식별 가능한 키로 기록해야 한다
+    // 결제 실패 해제, 시간 초과 해제, 예매 취소는 서로 다른 항목에, 각자 식별 가능한 키로 기록해야 한다
     @Test
-    @DisplayName("좌석 해제는 사유에 따라 paymentFailed/ttlExpired로 나눠 기록한다")
+    @DisplayName("좌석 해제는 사유에 따라 paymentFailed/ttlExpired/cancelled로 나눠 기록한다")
     void recordReleased_byReason() {
         // given
         SeatReleasedEvent paymentFailed = SeatReleasedEvent.paymentFailed(7L, 3L, 101L);
         SeatReleasedEvent ttlExpired = SeatReleasedEvent.ttlExpired(7L, 4L);
+        SeatReleasedEvent cancelled = SeatReleasedEvent.bookingCancelled(7L, 5L, 102L);
 
         // when
         statsService.recordReleased(paymentFailed);
         statsService.recordReleased(ttlExpired);
+        statsService.recordReleased(cancelled);
 
         // then
         verify(recorder).incrementOnce(7L, EventStatsResponse.PAYMENT_FAILED, "released:payment:101");
         verify(recorder).incrementOnce(7L, EventStatsResponse.TTL_EXPIRED,
                 "released:ttl:4:" + ttlExpired.occurredAt().toEpochMilli());
+        verify(recorder).incrementOnce(7L, EventStatsResponse.CANCELLED, "released:cancel:102");
     }
 
     // 기록이 없는 항목은 0으로 채워 응답해야 한다

@@ -149,6 +149,19 @@ public class SeatServiceImpl implements SeatService {
 
     @Override
     @Transactional
+    public SeatResponse reopenSeat(Long seatId) {
+        Seat seat = findSeatForUpdate(seatId);
+        seat.reopen();
+        publishStatusChanged(seat);
+        // 선점 때 건 좌석 락은 확정 뒤에도 TTL(5분)까지 남아 있어, 지우지 않으면 다시 열린 좌석을 아무도 잡지 못한다.
+        // 커밋이 실패해 CONFIRMED로 남는 경우에도 락 없이 들어온 선점은 Seat.hold()의 상태 확인에서 막힌다.
+        afterCommit(() -> seatLockManager.forceUnlock(seatId));
+        log.info("예매 취소로 좌석 재오픈 - seatId: {}", seatId);
+        return SeatResponse.from(seat);
+    }
+
+    @Override
+    @Transactional
     public List<SeatResponse> releaseExpiredSeats(LocalDateTime heldBefore) {
         List<SeatResponse> released = seatRepository.findExpiredHeldSeatsForUpdate(heldBefore).stream()
                 .map(seat -> {

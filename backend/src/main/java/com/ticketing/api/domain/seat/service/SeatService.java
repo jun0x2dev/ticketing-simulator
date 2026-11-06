@@ -70,6 +70,15 @@ public interface SeatService {
     void releaseSeat(Long seatId, String entryToken);
 
     /**
+     * 예매 취소로 확정(CONFIRMED)된 좌석을 다시 선택 가능 상태로 연다. 행 잠금 후 상태를 확인한다.
+     * 본인 확인은 결제 기록으로 하므로 호출하는 쪽(payment)이 먼저 마친다.
+     *
+     * @param seatId 다시 열 좌석 ID
+     * @return 다시 열린 좌석 정보 (CONFIRMED가 아니면 SEAT_NOT_CONFIRMED 예외)
+     */
+    SeatResponse reopenSeat(Long seatId);
+
+    /**
      * 선점 후 결제 제한시간이 지난 HELD 좌석을 AVAILABLE로 복구한다.
      * Redis 락은 TTL로 자동 만료되지만 DB 상태는 그대로이므로, 주기적으로 호출해 둘을 일치시킨다.
      * 복구한 좌석마다 seat.released(TTL_EXPIRED)를 같은 트랜잭션에서 outbox에 기록한다.

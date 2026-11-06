@@ -39,7 +39,7 @@ export interface EntryStatus {
 export interface Payment {
   id: number
   seatId: number
-  status: 'SUCCESS' | 'FAILED'
+  status: 'SUCCESS' | 'FAILED' | 'REFUNDED'
   createdAt: string
 }
 
@@ -49,6 +49,7 @@ export interface EventStats {
   confirmed: number
   paymentFailed: number
   ttlExpired: number
+  cancelled: number
 }
 
 interface ApiResponse<T> {
@@ -98,5 +99,7 @@ export const api = {
     postJson<null>(`/api/v1/seats/${seatId}/release`, undefined, { 'X-Entry-Token': token }),
   pay: (seatId: number, token: string) =>
     postJson<Payment>('/api/v1/payments', { seatId }, { 'X-Entry-Token': token }),
+  cancelPayment: (paymentId: number, token: string) =>
+    postJson<Payment>(`/api/v1/payments/${paymentId}/cancel`, undefined, { 'X-Entry-Token': token }),
   getStats: (eventId: number) => request<EventStats>(`/api/v1/events/${eventId}/stats`),
 }

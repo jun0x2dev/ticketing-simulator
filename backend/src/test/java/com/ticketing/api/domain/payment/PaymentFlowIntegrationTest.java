@@ -3,6 +3,7 @@ package com.ticketing.api.domain.payment;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -37,6 +38,8 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.stream.IntStream;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -294,6 +297,117 @@ class PaymentFlowIntegrationTest {
         });
         assertThat(seatRepository.findById(seatId).orElseThrow().getStatus()).isEqualTo(SeatStatus.HELD);
         assertThat(outboxEventRepository.count()).isZero();
+    }
+
+    // 예매를 취소하면 좌석이 바로 다시 열리고(선점 때 건 Redis 락이 남아 있으면 안 된다), 몰려든 다른 사용자 중 1명만 잡아야 한다
+    @Test
+    @DisplayName("예매 취소 시 좌석이 즉시 다시 열리고, 동시에 몰린 다른 사용자 중 1명만 선점한다")
+    void cancel_seatReopenedAndOnlyOneOfConcurrentUsersHolds() throws InterruptedException {
+        // given
+        when(paymentGateway.charge()).thenReturn(ChargeResult.approved("approval-1"));
+        PaymentResponse paid = paymentService.pay(seatId, entryToken);
+        int userCount = 20;
+        List<String> otherTokens = IntStream.range(0, userCount)
+                .mapToObj(i -> entryTokenManager.issue(UUID.randomUUID().toString(), event.getId()).orElseThrow())
+                .toList();
+
+        // when
+        PaymentResponse cancelled = paymentService.cancel(paid.id(), entryToken);
+        ExecutorService executorService = Executors.newFixedThreadPool(userCount);
+        CountDownLatch startLatch = new CountDownLatch(1);
+        CountDownLatch doneLatch = new CountDownLatch(userCount);
+        AtomicInteger held = new AtomicInteger();
+        for (String token : otherTokens) {
+            executorService.submit(() -> {
+                try {
+                    startLatch.await();
+                    seatService.holdSeat(seatId, token);
+                    held.incrementAndGet();
+                } catch (CustomException e) {
+                    // 한발 늦은 사용자는 SEAT_ALREADY_HELD로 실패하는 것이 정상이다
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                } finally {
+                    doneLatch.countDown();
+                }
+            });
+        }
+        startLatch.countDown();
+        doneLatch.await(10, TimeUnit.SECONDS);
+        executorService.shutdown();
+
+        // then
+        assertThat(cancelled.status()).isEqualTo(PaymentStatus.REFUNDED);
+        verify(paymentGateway).cancel("approval-1");
+        assertThat(held.get()).isEqualTo(1);
+        assertThat(seatRepository.findById(seatId).orElseThrow().getStatus()).isEqualTo(SeatStatus.HELD);
+        assertThat(outboxEventRepository.findAll())
+                .filteredOn(e -> e.getTopic().equals(KafkaTopicConfig.SEAT_RELEASED))
+                .singleElement()
+                .satisfies(e -> assertThat(e.getPayload()).contains("BOOKING_CANCELLED", "\"paymentId\":" + paid.id()));
+    }
+
+    // 같은 예매의 취소 요청이 동시에 몰려도 환불 요청과 좌석 재오픈은 정확히 1번이어야 한다
+    @Test
+    @DisplayName("같은 예매를 동시에 취소해도 환불은 1번만 요청되고 seat.released도 1건만 기록된다")
+    void cancel_concurrentRequests_refundedOnlyOnce() throws InterruptedException {
+        // given
+        when(paymentGateway.charge()).thenReturn(ChargeResult.approved("approval-1"));
+        // 실제 게이트웨이처럼 환불에 시간이 걸려야 요청들이 겹친다
+        doAnswer(invocation -> {
+            Thread.sleep(200);
+            return null;
+        }).when(paymentGateway).cancel("approval-1");
+        Long paymentId = paymentService.pay(seatId, entryToken).id();
+        int requestCount = 10;
+        ExecutorService executorService = Executors.newFixedThreadPool(requestCount);
+        CountDownLatch startLatch = new CountDownLatch(1);
+        CountDownLatch doneLatch = new CountDownLatch(requestCount);
+
+        // when
+        for (int i = 0; i < requestCount; i++) {
+            executorService.submit(() -> {
+                try {
+                    startLatch.await();
+                    paymentService.cancel(paymentId, entryToken);
+                } catch (CustomException e) {
+                    // 늦게 도착한 취소는 PAYMENT_IN_PROGRESS 또는 PAYMENT_NOT_CANCELLABLE로 실패하는 것이 정상이다
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                } finally {
+                    doneLatch.countDown();
+                }
+            });
+        }
+        startLatch.countDown();
+        doneLatch.await(10, TimeUnit.SECONDS);
+        executorService.shutdown();
+
+        // then
+        verify(paymentGateway, times(1)).cancel("approval-1");
+        assertThat(paymentRepository.findById(paymentId).orElseThrow().getStatus()).isEqualTo(PaymentStatus.REFUNDED);
+        assertThat(seatRepository.findById(seatId).orElseThrow().getStatus()).isEqualTo(SeatStatus.AVAILABLE);
+        assertThat(outboxEventRepository.findAll())
+                .filteredOn(e -> e.getTopic().equals(KafkaTopicConfig.SEAT_RELEASED))
+                .hasSize(1);
+    }
+
+    // 다른 사람의 입장 토큰으로는 예매를 취소할 수 없고, 환불도 요청되지 않아야 한다
+    @Test
+    @DisplayName("결제한 사용자가 아닌 토큰으로 취소하면 PAYMENT_PAYER_MISMATCH 예외가 발생하고 좌석은 CONFIRMED로 남는다")
+    void cancel_notPayer_throws() {
+        // given
+        when(paymentGateway.charge()).thenReturn(ChargeResult.approved("approval-1"));
+        Long paymentId = paymentService.pay(seatId, entryToken).id();
+        String otherToken = entryTokenManager.issue(UUID.randomUUID().toString(), event.getId()).orElseThrow();
+
+        // when & then
+        assertThatThrownBy(() -> paymentService.cancel(paymentId, otherToken))
+                .isInstanceOf(CustomException.class)
+                .extracting(e -> ((CustomException) e).getErrorCode())
+                .isEqualTo(ErrorCode.PAYMENT_PAYER_MISMATCH);
+        verify(paymentGateway, never()).cancel(any());
+        assertThat(seatRepository.findById(seatId).orElseThrow().getStatus()).isEqualTo(SeatStatus.CONFIRMED);
     }
 
     // 결제 도중 TTL이 지나 다른 사람이 다시 잡은 좌석을 원래 선점자가 확정해서는 안 된다
