@@ -870,6 +870,16 @@ summary:focus-visible {
   text-align: left;
 }
 
+.cancel-confirm {
+  display: grid;
+  gap: 12px;
+  justify-items: center;
+  width: 100%;
+  padding: 16px;
+  background: var(--bg-soft);
+  border-radius: 8px;
+}
+
 .booking-number {
   font-weight: 800;
   color: var(--brand);
@@ -882,7 +892,7 @@ summary:focus-visible {
 
 .stats-grid {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(5, 1fr);
   gap: 8px;
   margin-top: 16px;
 }
@@ -957,7 +967,7 @@ summary:focus-visible {
   }
 
   .stats-grid {
-    grid-template-columns: repeat(2, 1fr);
+    grid-template-columns: repeat(3, 1fr);
   }
 
   .waiting-panel,

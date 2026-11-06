@@ -62,6 +62,8 @@ function App() {
             event={step.event}
             seat={step.seat}
             payment={step.payment}
+            token={step.token}
+            onCancelled={(payment) => setStep({ ...step, payment })}
             onRetry={() => setStep({ name: 'seats', concert: step.concert, event: step.event, token: step.token })}
             onHome={goHome}
           />
