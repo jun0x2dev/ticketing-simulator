@@ -40,6 +40,7 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.transaction.annotation.AnnotationTransactionAttributeSource;
 
 /**
  * EntryServiceImpl 단위 테스트. Redis 토큰 관리자와 Kafka Producer는 Mock으로 대체한다.
@@ -358,5 +359,21 @@ class EntryServiceImplTest {
 
     private static EventResponse event(LocalDateTime openAt) {
         return new EventResponse(1L, "공연", 1, openAt);
+    }
+
+    // Redis만 쓰는 대기열 처리가 트랜잭션을 열면 호출마다 DB 커넥션을 잡아, 대기 상태 폴링만으로 커넥션 풀이 고갈된다
+    @Test
+    @DisplayName("대기열 서비스 메서드는 트랜잭션 없이 실행되어 DB 커넥션을 잡지 않는다")
+    void entryService_runsWithoutTransaction() throws NoSuchMethodException {
+        // given
+        AnnotationTransactionAttributeSource source = new AnnotationTransactionAttributeSource();
+
+        // when & then
+        assertThat(source.getTransactionAttribute(
+                EntryServiceImpl.class.getMethod("getEntryStatus", Long.class, String.class), EntryServiceImpl.class)).isNull();
+        assertThat(source.getTransactionAttribute(
+                EntryServiceImpl.class.getMethod("grantEntry", EntryRequestedEvent.class), EntryServiceImpl.class)).isNull();
+        assertThat(source.getTransactionAttribute(
+                EntryServiceImpl.class.getMethod("requestEntry", Long.class), EntryServiceImpl.class)).isNull();
     }
 }

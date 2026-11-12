@@ -21,13 +21,14 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
 /**
  * EntryService 구현체. DB를 쓰지 않고 Redis 토큰과 Kafka 이벤트만 다룬다.
+ * 다른 서비스와 달리 클래스에 트랜잭션을 걸지 않는다. readOnly 트랜잭션도 시작할 때 DB 커넥션을 잡기 때문에,
+ * 1초마다 들어오는 대기 상태 조회가 커넥션 풀을 다 써서 좌석 선점·결제가 커넥션을 못 얻게 된다.
+ * 오픈 시각 확인처럼 DB가 필요한 부분은 EventService가 자기 트랜잭션으로 처리한다.
  */
 @Service
-@Transactional(readOnly = true)
 public class EntryServiceImpl implements EntryService {
 
     private static final Logger log = LoggerFactory.getLogger(EntryServiceImpl.class);
