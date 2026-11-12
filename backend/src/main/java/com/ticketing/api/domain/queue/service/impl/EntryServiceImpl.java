@@ -5,6 +5,7 @@ import com.ticketing.api.domain.queue.dto.EntryGrantedEvent;
 import com.ticketing.api.domain.queue.dto.EntryRequestResponse;
 import com.ticketing.api.domain.queue.dto.EntryRequestedEvent;
 import com.ticketing.api.domain.queue.dto.EntryStatusResponse;
+import com.ticketing.api.domain.queue.metrics.QueueMetrics;
 import com.ticketing.api.domain.queue.producer.EntryGrantedProducer;
 import com.ticketing.api.domain.queue.producer.EntryRequestProducer;
 import com.ticketing.api.domain.queue.service.EntryService;
@@ -39,6 +40,7 @@ public class EntryServiceImpl implements EntryService {
     private final EntryGrantedProducer entryGrantedProducer;
     private final EntryTokenManager entryTokenManager;
     private final WaitingLineManager waitingLineManager;
+    private final QueueMetrics queueMetrics;
     private final int workerTps;
 
     public EntryServiceImpl(EventService eventService,
@@ -46,12 +48,14 @@ public class EntryServiceImpl implements EntryService {
                             EntryGrantedProducer entryGrantedProducer,
                             EntryTokenManager entryTokenManager,
                             WaitingLineManager waitingLineManager,
+                            QueueMetrics queueMetrics,
                             @Value("${queue.worker.tps:100}") int workerTps) {
         this.eventService = eventService;
         this.entryRequestProducer = entryRequestProducer;
         this.entryGrantedProducer = entryGrantedProducer;
         this.entryTokenManager = entryTokenManager;
         this.waitingLineManager = waitingLineManager;
+        this.queueMetrics = queueMetrics;
         this.workerTps = workerTps;
     }
 
@@ -76,6 +80,8 @@ public class EntryServiceImpl implements EntryService {
             return;
         }
         entryGrantedProducer.send(EntryGrantedEvent.from(event));
+        // 중복 메시지는 위에서 걸렀으므로 요청 1건당 한 번만 기록된다.
+        queueMetrics.recordWait(event.requestedAt());
         log.info("입장 허용 - requestId: {}, eventId: {}", event.requestId(), event.eventId());
     }
 

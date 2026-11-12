@@ -29,6 +29,7 @@ import com.ticketing.api.global.config.KafkaTopicConfig;
 import com.ticketing.api.global.exception.CustomException;
 import com.ticketing.api.global.exception.ErrorCode;
 import com.ticketing.api.global.lock.RedisLock;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.util.Optional;
 import java.util.function.Consumer;
 import org.junit.jupiter.api.BeforeEach;
@@ -57,8 +58,9 @@ class PaymentServiceImplTest {
     private final OutboxService outboxService = mock(OutboxService.class);
     private final TransactionTemplate transactionTemplate = mock(TransactionTemplate.class);
     private final RedisLock redisLock = mock(RedisLock.class);
+    private final SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
     private final PaymentServiceImpl paymentService = new PaymentServiceImpl(paymentRepository, seatService,
-            paymentGateway, outboxService, transactionTemplate, redisLock, 30000);
+            paymentGateway, outboxService, transactionTemplate, redisLock, meterRegistry, 30000);
 
     @BeforeEach
     void setUp() {
@@ -91,6 +93,7 @@ class PaymentServiceImplTest {
         verify(paymentRepository).save(argThat(p -> APPROVAL_ID.equals(p.getApprovalId())));
         verify(outboxService).append(eq(KafkaTopicConfig.SEAT_CONFIRMED), eq(String.valueOf(EVENT_ID)), any(SeatConfirmedEvent.class));
         verify(redisLock).unlock(LOCK_KEY, LOCK_TOKEN);
+        assertThat(paymentCount("success")).isEqualTo(1);
     }
 
     // 결제가 거절되면 좌석이 해제되고 seat.released 이벤트가 outbox에 기록되는지 확인
@@ -110,6 +113,7 @@ class PaymentServiceImplTest {
         verify(seatService, never()).confirmSeat(SEAT_ID, TOKEN);
         verify(outboxService).append(eq(KafkaTopicConfig.SEAT_RELEASED), eq(String.valueOf(EVENT_ID)), any(SeatReleasedEvent.class));
         verify(redisLock).unlock(LOCK_KEY, LOCK_TOKEN);
+        assertThat(paymentCount("failed")).isEqualTo(1);
     }
 
     // 같은 좌석의 결제가 진행 중이면 게이트웨이를 호출하지 않고 바로 거절해야 한다 (승인 중복 방지)
@@ -179,6 +183,8 @@ class PaymentServiceImplTest {
                 && APPROVAL_ID.equals(p.getApprovalId())));
         verify(outboxService, never()).append(any(), any(), any());
         verify(redisLock).unlock(LOCK_KEY, LOCK_TOKEN);
+        assertThat(paymentCount("cancelled")).isEqualTo(1);
+        assertThat(paymentCount("success")).isZero();
     }
 
     // 승인 취소 자체가 실패해도 확정 실패의 원래 예외를 가리지 않아야 한다 (취소 실패는 로그로 남긴다)
@@ -220,6 +226,7 @@ class PaymentServiceImplTest {
                         && SeatReleasedEvent.REASON_BOOKING_CANCELLED.equals(released.reason())
                         && PAYMENT_ID.equals(released.paymentId())));
         verify(redisLock).unlock(LOCK_KEY, LOCK_TOKEN);
+        assertThat(paymentCount("refunded")).isEqualTo(1);
     }
 
     // 결제한 사람이 아니면 환불을 요청하기 전에 거절하고, 잡았던 락은 풀어야 한다
@@ -311,5 +318,11 @@ class PaymentServiceImplTest {
     // DB에서 읽을 때마다 새 객체가 오는 것처럼, 호출마다 새 결제 객체를 만든다
     private Payment paidPayment() {
         return Payment.create(SEAT_ID, PaymentStatus.SUCCESS, APPROVAL_ID, TOKEN);
+    }
+
+    // 결과별 결제 지표 값. 한 번도 기록되지 않았으면 0이다.
+    private double paymentCount(String result) {
+        var counter = meterRegistry.find("ticketing.payments").tag("result", result).counter();
+        return counter == null ? 0 : counter.count();
     }
 }

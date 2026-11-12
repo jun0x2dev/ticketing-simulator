@@ -1,0 +1,12 @@
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    uid: prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    jsonData:
+      # Prometheus 수집 주기(5초)와 맞춘다. 기본값(15초)이면 그래프가 15초 간격으로만 점을 찍어 몇 초짜리 급증을 놓친다.
+      timeInterval: 5s
