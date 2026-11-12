@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.ticketing.api.domain.queue.waiting.WaitingLineManager;
 import com.ticketing.api.domain.queue.waiting.WaitingPosition;
+import io.micrometer.core.instrument.MeterRegistry;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -39,6 +40,9 @@ class WaitingLineIntegrationTest {
 
     @Autowired
     private StringRedisTemplate redisTemplate;
+
+    @Autowired
+    private MeterRegistry meterRegistry;
 
     // 접수 순서대로 1, 2, 3번이 되고, 뒤 인원은 줄 길이 기준으로 계산되어야 한다
     @Test
@@ -95,5 +99,26 @@ class WaitingLineIntegrationTest {
         // then
         assertThat(redisTemplate.getExpire("queue:line:105")).isPositive();
         assertThat(redisTemplate.getExpire("queue:seq:105")).isPositive();
+    }
+
+    // 대기 인원 지표는 모든 회차의 줄을 합산하고, 입장해 빠진 사람과 순번 카운터 키는 세지 않아야 한다
+    @Test
+    @DisplayName("대기 인원 지표는 모든 회차 줄에 남은 인원의 합이다")
+    void waitingGauge_sumsAllLines() {
+        // given: 같은 컨테이너를 쓰는 다른 테스트가 남긴 인원은 차이로 걸러 낸다
+        double before = waitingGauge();
+        waitingLineManager.join(106L, "a");
+        waitingLineManager.join(106L, "b");
+        waitingLineManager.join(107L, "c");
+
+        // when
+        waitingLineManager.leave(106L, "a");
+
+        // then
+        assertThat(waitingGauge() - before).isEqualTo(2);
+    }
+
+    private double waitingGauge() {
+        return meterRegistry.get("ticketing.queue.waiting").gauge().value();
     }
 }

@@ -30,3 +30,35 @@ services:
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
       # 로컬 PC 부하를 줄이기 위해 브로커 힙을 제한한다.
       KAFKA_HEAP_OPTS: "-Xmx256m -Xms256m"
+
+  # 모니터링은 필요할 때만 켠다: docker compose --profile monitoring up -d
+  prometheus:
+    image: prom/prometheus:v3.4.1
+    profiles: [monitoring]
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      # 부하 테스트 비교용이라 오래 보관할 필요가 없고, 디스크를 덜 쓰도록 하루만 남긴다.
+      - --storage.tsdb.retention.time=1d
+    volumes:
+      - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    # 호스트에서 실행 중인 앱을 수집하기 위해 컨테이너 안에서 호스트 주소를 쓸 수 있게 한다.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "127.0.0.1:9090:9090"
+
+  grafana:
+    image: grafana/grafana:12.0.2
+    profiles: [monitoring]
+    environment:
+      # 로컬 전용(127.0.0.1에만 열림)이라 로그인 없이 대시보드를 바로 볼 수 있게 한다.
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
+      GF_AUTH_DISABLE_LOGIN_FORM: "true"
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    depends_on:
+      - prometheus
+    ports:
+      - "127.0.0.1:3000:3000"

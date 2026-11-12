@@ -1,0 +1,11 @@
+# 호스트에서 실행 중인 Spring Boot 앱의 /actuator/prometheus를 수집한다.
+# 앱 포트를 8080이 아닌 값으로 띄웠다면 아래 targets의 포트를 같이 바꾼다.
+global:
+  # 대기열은 몇 초 단위로 변하므로 기본값(1분)보다 촘촘하게 수집한다.
+  scrape_interval: 5s
+
+scrape_configs:
+  - job_name: ticketing-api
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ["host.docker.internal:8080"]

@@ -151,7 +151,7 @@ k6 시나리오용 `POST /api/v1/events`는 남겨 두되 좌석 수 상한은 5
 
 ### 부하 테스트 / 성능 측정
 - **k6** — 대량 동시 요청 시뮬레이션, 전/후 성능 비교
-- **Grafana + Prometheus** (선택) — 실시간 트래픽/시스템 지표 시각화, 시뮬레이션 중 모니터링 데모용
+- **Grafana + Prometheus + Micrometer** — 대기 인원, 실제 대기 시간, 입장 속도, API 응답 시간, DB 커넥션을 부하 테스트 중 실시간으로 본다(`docker compose --profile monitoring`)
 
 ### 프론트엔드
 - **React + Vite + TypeScript** — 공연 목록/대기/좌석/결제/예매 완료 화면

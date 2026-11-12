@@ -20,6 +20,7 @@ import com.ticketing.api.domain.queue.dto.EntryRequestResponse;
 import com.ticketing.api.domain.queue.dto.EntryRequestedEvent;
 import com.ticketing.api.domain.queue.dto.EntryStatus;
 import com.ticketing.api.domain.queue.dto.EntryStatusResponse;
+import com.ticketing.api.domain.queue.metrics.QueueMetrics;
 import com.ticketing.api.domain.queue.producer.EntryGrantedProducer;
 import com.ticketing.api.domain.queue.producer.EntryRequestProducer;
 import com.ticketing.api.domain.queue.token.EntryTokenManager;
@@ -27,6 +28,7 @@ import com.ticketing.api.domain.queue.waiting.WaitingLineManager;
 import com.ticketing.api.domain.queue.waiting.WaitingPosition;
 import com.ticketing.api.global.exception.CustomException;
 import com.ticketing.api.global.exception.ErrorCode;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.time.LocalDateTime;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
@@ -38,6 +40,7 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.transaction.annotation.AnnotationTransactionAttributeSource;
 
 /**
  * EntryServiceImpl 단위 테스트. Redis 토큰 관리자와 Kafka Producer는 Mock으로 대체한다.
@@ -60,13 +63,15 @@ class EntryServiceImplTest {
     @Mock
     private WaitingLineManager waitingLineManager;
 
+    private final SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
+
     private EntryServiceImpl entryService;
 
     @BeforeEach
     void setUp() {
         // 예상 대기 시간 계산을 검증하기 위해 큐 워커 처리량을 초당 20명으로 고정한다
         entryService = new EntryServiceImpl(eventService, entryRequestProducer, entryGrantedProducer,
-                entryTokenManager, waitingLineManager, 20);
+                entryTokenManager, waitingLineManager, new QueueMetrics(meterRegistry, waitingLineManager), 20);
         // 기본은 발행 성공. 발행을 쓰지 않는 테스트도 있어 lenient로 둔다
         lenient().doReturn(CompletableFuture.completedFuture(null)).when(entryRequestProducer).send(any(EntryRequestedEvent.class));
         // 기본은 이미 오픈된 회차. 오픈 전 회차를 다루는 테스트만 따로 바꾼다
@@ -198,6 +203,7 @@ class EntryServiceImplTest {
         // then
         verify(entryGrantedProducer).send(any(EntryGrantedEvent.class));
         verify(waitingLineManager).leave(1L, event.requestId());
+        assertThat(meterRegistry.get("ticketing.queue.wait").timer().count()).isEqualTo(1);
     }
 
     // 같은 요청이 재전달되어도 토큰/이벤트가 중복 발행되면 안 된다 (멱등성)
@@ -213,6 +219,7 @@ class EntryServiceImplTest {
 
         // then
         verify(entryGrantedProducer, never()).send(any(EntryGrantedEvent.class));
+        assertThat(meterRegistry.get("ticketing.queue.wait").timer().count()).isZero();
     }
 
     // 대기열 없이 직접 입장하면 Kafka 발행 없이 즉시 토큰이 담긴 GRANTED가 반환되어야 한다
@@ -352,5 +359,21 @@ class EntryServiceImplTest {
 
     private static EventResponse event(LocalDateTime openAt) {
         return new EventResponse(1L, "공연", 1, openAt);
+    }
+
+    // Redis만 쓰는 대기열 처리가 트랜잭션을 열면 호출마다 DB 커넥션을 잡아, 대기 상태 폴링만으로 커넥션 풀이 고갈된다
+    @Test
+    @DisplayName("대기열 서비스 메서드는 트랜잭션 없이 실행되어 DB 커넥션을 잡지 않는다")
+    void entryService_runsWithoutTransaction() throws NoSuchMethodException {
+        // given
+        AnnotationTransactionAttributeSource source = new AnnotationTransactionAttributeSource();
+
+        // when & then
+        assertThat(source.getTransactionAttribute(
+                EntryServiceImpl.class.getMethod("getEntryStatus", Long.class, String.class), EntryServiceImpl.class)).isNull();
+        assertThat(source.getTransactionAttribute(
+                EntryServiceImpl.class.getMethod("grantEntry", EntryRequestedEvent.class), EntryServiceImpl.class)).isNull();
+        assertThat(source.getTransactionAttribute(
+                EntryServiceImpl.class.getMethod("requestEntry", Long.class), EntryServiceImpl.class)).isNull();
     }
 }

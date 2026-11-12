@@ -2,6 +2,8 @@ package com.ticketing.api.domain.queue.waiting;
 
 import java.time.Duration;
 import java.util.Optional;
+import org.springframework.data.redis.core.Cursor;
+import org.springframework.data.redis.core.ScanOptions;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
@@ -19,6 +21,7 @@ public class WaitingLineManager {
     private static final String SEQUENCE_KEY_PREFIX = "queue:seq:";
     // DLT로 빠지는 등 끝내 허용되지 못한 요청이 줄에 영구히 남지 않도록, 마지막 접수 후 1시간이 지나면 줄 전체를 만료시킨다.
     private static final Duration LINE_TTL = Duration.ofHours(1);
+    private static final ScanOptions LINE_KEYS = ScanOptions.scanOptions().match(LINE_KEY_PREFIX + "*").count(100).build();
 
     private final StringRedisTemplate redisTemplate;
 
@@ -64,5 +67,22 @@ public class WaitingLineManager {
         // rank와 zCard는 별도 명령이라 그 사이 줄이 줄어들 수 있으므로 음수가 되지 않게 보정한다.
         long behind = Math.max(0, (size == null ? 0 : size) - rank - 1);
         return Optional.of(new WaitingPosition(rank + 1, behind));
+    }
+
+    /**
+     * 모든 회차의 줄에 서 있는 인원을 합산한다. 지표 수집 주기마다 불리므로 KEYS 대신 SCAN으로 키를 나눠 읽어
+     * Redis를 막지 않는다. 회차 줄은 1시간 TTL로 정리되어 키 수가 크게 늘지 않는다.
+     *
+     * @return 대기 중인 전체 인원
+     */
+    public long countAll() {
+        long total = 0;
+        try (Cursor<String> keys = redisTemplate.scan(LINE_KEYS)) {
+            while (keys.hasNext()) {
+                Long size = redisTemplate.opsForZSet().zCard(keys.next());
+                total += size == null ? 0 : size;
+            }
+        }
+        return total;
     }
 }
