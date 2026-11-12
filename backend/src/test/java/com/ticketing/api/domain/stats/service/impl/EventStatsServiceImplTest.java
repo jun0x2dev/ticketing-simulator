@@ -17,6 +17,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.transaction.annotation.AnnotationTransactionAttributeSource;
 
 /**
  * EventStatsServiceImpl 단위 테스트. 이벤트별로 올바른 항목과 멱등 키로 기록하는지 검증한다.
@@ -90,5 +91,19 @@ class EventStatsServiceImplTest {
         assertThat(stats.confirmed()).isEqualTo(2);
         assertThat(stats.granted()).isZero();
         assertThat(stats.ttlExpired()).isZero();
+    }
+
+    // Redis만 쓰는 통계 처리가 트랜잭션을 열면 조회/집계마다 DB 커넥션을 잡아 좌석 선점·결제와 커넥션을 다툰다
+    @Test
+    @DisplayName("통계 서비스 메서드는 트랜잭션 없이 실행되어 DB 커넥션을 잡지 않는다")
+    void statsService_runsWithoutTransaction() throws NoSuchMethodException {
+        // given
+        AnnotationTransactionAttributeSource source = new AnnotationTransactionAttributeSource();
+
+        // when & then
+        assertThat(source.getTransactionAttribute(
+                EventStatsServiceImpl.class.getMethod("getStats", Long.class), EventStatsServiceImpl.class)).isNull();
+        assertThat(source.getTransactionAttribute(
+                EventStatsServiceImpl.class.getMethod("recordGranted", EntryGrantedEvent.class), EventStatsServiceImpl.class)).isNull();
     }
 }

@@ -16,6 +16,8 @@ import com.ticketing.api.global.config.KafkaTopicConfig;
 import com.ticketing.api.global.exception.CustomException;
 import com.ticketing.api.global.exception.ErrorCode;
 import com.ticketing.api.global.lock.RedisLock;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
 import java.time.Duration;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -44,6 +46,7 @@ public class PaymentServiceImpl implements PaymentService {
     // 게이트웨이 호출 이후의 DB 작업만 트랜잭션으로 묶기 위해 선언적 @Transactional 대신 사용한다.
     private final TransactionTemplate transactionTemplate;
     private final RedisLock redisLock;
+    private final MeterRegistry meterRegistry;
     private final Duration lockTtl;
 
     public PaymentServiceImpl(PaymentRepository paymentRepository,
@@ -52,6 +55,7 @@ public class PaymentServiceImpl implements PaymentService {
                               OutboxService outboxService,
                               TransactionTemplate transactionTemplate,
                               RedisLock redisLock,
+                              MeterRegistry meterRegistry,
                               @Value("${payment.lock-ttl-ms:30000}") long lockTtlMillis) {
         this.paymentRepository = paymentRepository;
         this.seatService = seatService;
@@ -59,6 +63,7 @@ public class PaymentServiceImpl implements PaymentService {
         this.outboxService = outboxService;
         this.transactionTemplate = transactionTemplate;
         this.redisLock = redisLock;
+        this.meterRegistry = meterRegistry;
         this.lockTtl = Duration.ofMillis(lockTtlMillis);
     }
 
@@ -127,6 +132,7 @@ public class PaymentServiceImpl implements PaymentService {
             throw e;
         }
         log.info("예매 취소, 환불 완료 - seatId: {}, paymentId: {}", payment.getSeatId(), paymentId);
+        countResult(PaymentStatus.REFUNDED);
         return PaymentResponse.from(payment);
     }
 
@@ -154,6 +160,7 @@ public class PaymentServiceImpl implements PaymentService {
             throw e;
         }
         log.info("결제 승인 - seatId: {}, paymentId: {}", seatId, payment.getId());
+        countResult(PaymentStatus.SUCCESS);
         return PaymentResponse.from(payment);
     }
 
@@ -167,6 +174,7 @@ public class PaymentServiceImpl implements PaymentService {
             return saved;
         });
         log.info("결제 거절, 좌석 해제 - seatId: {}, paymentId: {}", seatId, payment.getId());
+        countResult(PaymentStatus.FAILED);
         return PaymentResponse.from(payment);
     }
 
@@ -187,5 +195,15 @@ public class PaymentServiceImpl implements PaymentService {
             return;
         }
         log.warn("좌석 확정 실패로 결제 승인 취소 - seatId: {}, approvalId: {}", seatId, approvalId);
+        countResult(PaymentStatus.CANCELLED);
+    }
+
+    // 결제가 어떤 상태로 끝났는지 지표로 남긴다. 승인 실패율이나 확정 실패로 인한 승인 취소가 늘어나는지를 대시보드에서 본다.
+    private void countResult(PaymentStatus status) {
+        Counter.builder("ticketing.payments")
+                .description("결과별 결제 처리 건수")
+                .tag("result", status.name().toLowerCase())
+                .register(meterRegistry)
+                .increment();
     }
 }

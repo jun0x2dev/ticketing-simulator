@@ -10,14 +10,14 @@ import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
 /**
  * EventStatsService 구현체. DB를 쓰지 않고 Redis 카운터에만 기록한다.
+ * DB를 쓰지 않으므로 트랜잭션을 걸지 않는다. 걸면 통계 조회와 Consumer 집계마다 DB 커넥션을 잡아,
+ * 부하 중 좌석 선점·결제와 커넥션을 다투게 된다.
  */
 @Service
 @RequiredArgsConstructor
-@Transactional(readOnly = true)
 public class EventStatsServiceImpl implements EventStatsService {
 
     private static final Logger log = LoggerFactory.getLogger(EventStatsServiceImpl.class);

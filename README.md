@@ -85,12 +85,48 @@ k6 가상 관객 150명과 같은 회차에 줄을 서서 예매하고, 예매�
 같은 PC에서 가상 유저 2,000명으로 대기열 적용 전 시나리오를 돌렸을 때는 요청의 51%가 실패(연결 거부, 60초 타임아웃)했지만, PC 자체가 버티지 못해 적용 후 시나리오는 같은 규모로 측정하지 못했다.
 절대 수치보다 같은 조건에서의 전/후 차이를 봐야 한다. 실행 방법은 [`load-generator/README.md`](./load-generator/README.md) 참고.
 
+## 모니터링
+
+k6로 부하를 거는 동안 Grafana 대시보드에서 아래 지표를 5초 단위로 본다. 대기열 지표는 직접 정의했고, 나머지는 Spring Boot actuator가 내보내는 기본 지표다.
+
+| 패널 | 지표 | 보는 것 |
+|---|---|---|
+| 대기 인원 | `ticketing_queue_waiting` (Redis 대기 줄 크기) | 줄이 얼마나 길어졌는지 |
+| 초당 입장 허용 | `ticketing_queue_wait_seconds_count`의 증가율 | 설정값(`queue.worker.tps`)이 아닌 실제 입장 속도 |
+| 실제 대기 시간 p50/p95/p99 | `ticketing_queue_wait_seconds` (접수→입장 허용) | 대기 화면의 예상 시간과 실제 대기의 차이 |
+| 좌석 선점 결과 | `http_server_requests` (hold, 상태 코드별) | 선점 성공(200)과 경쟁 실패(409), 서버 오류(5xx) |
+| 결제 결과 | `ticketing_payments_total` (success/failed/cancelled/refunded) | 승인 거절, 확정 실패로 인한 승인 취소, 예매 취소 |
+| API 응답 시간 p95 | `http_server_requests` (경로별) | 어떤 API가 느려지는지 |
+| DB 커넥션 | `hikaricp_connections_*` | 커넥션 풀이 병목인지 |
+| Kafka 소비 지연, JVM 힙 | Kafka 클라이언트 지표, `jvm_memory_*` | 이벤트 처리 밀림, 메모리 |
+
+지표를 고른 이유는 [모니터링 트레이드오프](./docs/trade-offs/2026-11-12-monitoring-prometheus-grafana.md)에 정리했다.
+
+### 대시보드로 찾은 병목: Redis만 쓰는 조회가 DB 커넥션 풀을 고갈
+
+가상 관객 300명이 대기열에 들어오고, 동시에 결제와 예매 취소를 섞는 부하를 걸었다. 그러자 대기 상태 조회와 좌석 선점에서 500 에러가 났다.
+
+- **원인:** 대기 상태 조회는 Redis만 읽는데, 서비스 클래스의 `@Transactional(readOnly = true)` 때문에 호출마다 DB 커넥션을 잡았다.
+- **영향:** 1초 폴링만으로 커넥션 10개가 바닥나, 좌석 선점과 큐 워커의 입장 처리까지 커넥션을 기다렸다.
+- **수정:** Redis만 쓰는 두 서비스에서 트랜잭션을 걷어냈다.
+
+| 지표 | 수정 전 | 수정 후 |
+|---|---|---|
+| 요청 실패율 | 3.43% | 0% |
+| 대기 시간 평균 / p95 | 1분 39초 / 3분 3초 | 3.3초 / 6.0초 |
+| 최대 입장 속도 | 초당 7.9명 | 초당 25.9명 |
+| 대기 상태 조회 p95 | 30초(타임아웃) | 0.08초 |
+
+![수정 후 대시보드](./docs/monitoring-after.png)
+
+수정 전 대시보드와 남은 병목(입장 직후 좌석 선점이 몰릴 때의 커넥션 대기)은 [트러블슈팅 기록](./docs/troubleshooting/2026-11-12-redis-only-service-exhausts-db-pool.md)에 정리했다.
+
 ## 기술 스택
 
 - **백엔드**: Java 17, Spring Boot 4.1, Spring Data JPA, Spring Kafka, Spring Data Redis, Spring WebSocket(STOMP)
 - **인프라**: MySQL 8.4, Redis 7, Kafka 3.9(KRaft), Docker Compose
 - **프론트엔드**: React 19, TypeScript, Vite, `@stomp/stompjs`
-- **부하 테스트**: k6
+- **부하 테스트 / 모니터링**: k6, Micrometer, Prometheus, Grafana
 - **테스트**: JUnit 5, Mockito, Testcontainers(Redis), EmbeddedKafka, H2
 
 ## 실행 방법
@@ -130,6 +166,15 @@ npm run dev                 # http://localhost:5173
 ```bash
 k6 run -e EVENT_ID=12 -e VUS=100 load-generator/queue.js
 ```
+
+### 5. 모니터링 (선택)
+
+```bash
+docker compose --profile monitoring up -d   # Prometheus · Grafana
+```
+
+Grafana(http://localhost:3000)에 로그인 없이 들어가면 "티케팅 시뮬레이터" 대시보드가 등록되어 있다.
+Prometheus는 호스트의 `localhost:8080`을 수집하므로, 앱 포트를 바꿨다면 `monitoring/prometheus/prometheus.yml`의 포트도 같이 바꾼다.
 
 ### 테스트
 
@@ -188,6 +233,7 @@ frontend/src
 ├── pages         공연 목록, 대기, 좌석 선택, 결제, 예매 완료
 └── shared        API 클라이언트, STOMP 훅, 공통 UI
 load-generator    k6 시나리오 (direct.js / queue.js)
+monitoring        Prometheus 수집 설정, Grafana 데이터소스/대시보드 프로비저닝
 ```
 
 ## 문서
@@ -201,6 +247,7 @@ load-generator    k6 시나리오 (direct.js / queue.js)
 ## 범위 밖 / 남은 과제
 
 - 배포 환경 구성: 로컬(docker-compose) 실행까지만 다룬다
+- 입장 직후 좌석 선점이 한꺼번에 몰리면 DB 커넥션 대기가 생긴다(선점 p95 약 12초, 타임아웃 없음). 선점 트랜잭션 범위나 커넥션 풀 크기 조정이 다음 개선 후보다
 - 사용자 인증 없음: 입장 토큰은 requestId를 아는 사람이 조회할 수 있다
 - 기본 프로필이 `local`이라 대기열 우회 API(`entries/direct`)가 열려 있다. 배포 시에는 `local`/`bench`가 아닌 프로필로 실행해야 한다
 - 통계 DLT 재집계까지 실패한 메시지는 error 로그와 DLT 원본으로 수동 처리한다. WebSocket 릴레이 실패는 대기 화면 폴링(1초)으로 대체하고 재처리하지 않는다
